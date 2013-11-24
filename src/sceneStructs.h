@@ -20,6 +20,7 @@ struct ray {
 
 struct geom {
 	enum GEOMTYPE type;
+	int objectid;
 	int materialid;
 	int frames;
 	glm::vec3* translations;
@@ -31,6 +32,7 @@ struct geom {
 
 struct staticGeom {
 	enum GEOMTYPE type;
+	int objectid;
 	int materialid;
 	glm::vec3 translation;
 	glm::vec3 rotation;
@@ -39,7 +41,31 @@ struct staticGeom {
 	cudaMat4 inverseTransform;
 };
 
+struct volume {
+	int volumeid;
+	int materialid;
+	float delt;
+	float step;
+	glm::vec3 xyzc;
+	glm::vec3 translation;
+	glm::vec3 rotation;
+	glm::vec3 scale;
+	cudaMat4 transform;
+	cudaMat4 inverseTransform;
+	float* densities;
+};
+
+struct light {
+	int lightid;
+	glm::vec3 color;
+	glm::vec3 position;
+};
+
 struct cameraData {
+	float delt;
+	float step;
+	glm::vec3 brgb;
+	glm::vec3 xyzc;
 	glm::vec2 resolution;
 	glm::vec3 position;
 	glm::vec3 view;
@@ -48,29 +74,39 @@ struct cameraData {
 };
 
 struct camera {
-	glm::vec2 resolution;
-	glm::vec3* positions;
-	glm::vec3* views;
-	glm::vec3* ups;
-	int frames;
-	glm::vec2 fov;
-	unsigned int iterations;
-	glm::vec3* image;
-	ray* rayList;
-	std::string imageName;
+
+	// volumetric data for 
+	// ray marching
+	float delt;					// dimenstion of square of voxel
+	float step;					// size of step to be take by ray
+	glm::vec3 xyzc;				// dimension of voxel grid
+
+	// intrinsic camera stuff
+	glm::vec3* positions;		// eye positions
+	glm::vec3* views;			// camera directions
+	glm::vec3* ups;				// up vectors
+	glm::vec2 fov;				// y-field-of-view
+
+	// render data
+	int frames;					// number of frames
+	glm::vec3 brgb;				// background color of render
+	glm::vec3* image;			// final image
+	glm::vec2 resolution;		// resolution of image
+	std::string imageName;		// filename to write image to
+	unsigned int iterations;	// number of iterations per frame
 };
 
 struct material{
 	glm::vec3 color;
-	float specularExponent;
-	glm::vec3 specularColor;
-	float hasReflective;
-	float hasRefractive;
-	float indexOfRefraction;
-	float hasScatter;
-	glm::vec3 absorptionCoefficient;
-	float reducedScatterCoefficient;
-	float emittance;
+	//float specularExponent;
+	//glm::vec3 specularColor;
+	//float hasReflective;
+	//float hasRefractive;
+	//float indexOfRefraction;
+	//float hasScatter;
+	//glm::vec3 absorptionCoefficient;
+	//float reducedScatterCoefficient;
+	//float emittance;
 };
 
 #endif //CUDASTRUCTS_H

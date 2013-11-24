@@ -52,6 +52,25 @@ glm::vec3 utilityCore::clampRGB(glm::vec3 color){
     return color;
 }
 
+glm::vec3 utilityCore::clampLight(glm::vec3 color){
+    if(color.x > 1.0f){
+        color.x = 1.0f;
+    }else if(color.x < 0.0f){
+        color.x = 0.0f;
+    }
+    if(color.y > 1.0f){
+        color.y = 1.0f;
+    }else if(color.y < 0.0f){
+        color.y = 0.0f;
+    }
+	if(color.z > 1.0f){
+        color.z = 1.0f;
+    }else if(color.z < 0.0f){
+        color.z = 0.0f;
+    }
+	return color;
+}
+
 bool utilityCore::epsilonCheck(float a, float b){
     if(fabs(fabs(a)-fabs(b))<EPSILON){
         return true;

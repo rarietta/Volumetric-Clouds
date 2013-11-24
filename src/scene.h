@@ -21,12 +21,16 @@ private:
     ifstream fp_in;
     int loadMaterial(string materialid);
     int loadObject(string objectid);
+    int loadVolume(string volumeid);
+    int loadLight(string lightid);
     int loadCamera();
 public:
     scene(string filename);
     ~scene();
 
     vector<geom> objects;
+    vector<light> lights;
+    vector<volume> volumes;
     vector<material> materials;
     camera renderCam;
 };

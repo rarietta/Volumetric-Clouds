@@ -26,6 +26,8 @@ __host__ __device__ glm::vec3 calculateTransmissionDirection(glm::vec3 normal, g
 __host__ __device__ glm::vec3 calculateReflectionDirection(glm::vec3 normal, glm::vec3 incident);
 __host__ __device__ Fresnel calculateFresnel(glm::vec3 normal, glm::vec3 incident, float incidentIOR, float transmittedIOR, glm::vec3 reflectionDirection, glm::vec3 transmissionDirection);
 __host__ __device__ glm::vec3 calculateRandomDirectionInHemisphere(glm::vec3 normal, float xi1, float xi2);
+__host__ __device__ glm::vec3 computePhongTotal(ray& r, glm::vec3 intersection_point, glm::vec3 intersection_normal, material intersection_mtl, staticGeom* lights, int numberOfLights, staticGeom* geoms, int numberOfGeoms, material* materials, float time);
+__host__ __device__ float computeShadowCoefficient(glm::vec3 intersection_point, staticGeom light, staticGeom* geoms, int numberOfGeoms, float time);
 
 //TODO (OPTIONAL): IMPLEMENT THIS FUNCTION
 __host__ __device__ glm::vec3 calculateTransmission(glm::vec3 absorptionCoefficient, float distance) {
@@ -45,8 +47,12 @@ __host__ __device__ glm::vec3 calculateTransmissionDirection(glm::vec3 normal, g
 
 //TODO (OPTIONAL): IMPLEMENT THIS FUNCTION
 __host__ __device__ glm::vec3 calculateReflectionDirection(glm::vec3 normal, glm::vec3 incident) {
-  //nothing fancy here
-  return glm::vec3(0,0,0);
+	float IdotN = glm::dot(-incident,normal);
+	glm::vec3 I;
+	if (IdotN < 0.0f) { I = incident; }
+	else			  { I = -incident;  }
+	glm::vec3 R = glm::normalize(2*IdotN*normal - I);
+	return R;
 }
 
 //TODO (OPTIONAL): IMPLEMENT THIS FUNCTION
@@ -67,7 +73,8 @@ __host__ __device__ glm::vec3 calculateRandomDirectionInHemisphere(glm::vec3 nor
     float over = sqrt(1 - up * up); // sin(theta)
     float around = xi2 * TWO_PI;
     
-    //Find a direction that is not the normal based off of whether or not the normal's components are all equal to sqrt(1/3) or whether or not at least one component is less than sqrt(1/3). Learned this trick from Peter Kutz.
+    //Find a direction that is not the normal based off of whether or not the normal's components are all equal to sqrt(1/3) 
+	//or whether or not at least one component is less than sqrt(1/3). Learned this trick from Peter Kutz.
     
     glm::vec3 directionNotNormal;
     if (abs(normal.x) < SQRT_OF_ONE_THIRD) {
@@ -90,7 +97,119 @@ __host__ __device__ glm::vec3 calculateRandomDirectionInHemisphere(glm::vec3 nor
 //Now that you know how cosine weighted direction generation works, try implementing non-cosine (uniform) weighted random direction generation.
 //This should be much easier than if you had to implement calculateRandomDirectionInHemisphere.
 __host__ __device__ glm::vec3 getRandomDirectionInSphere(float xi1, float xi2) {
-  return glm::vec3(0,0,0);
+  
+	float z = xi1;
+	float theta = xi2 * TWO_PI;
+	
+	float r = sqrt(1-z*z);
+	float x = r*cos(theta);
+	float y = r*sin(theta);
+
+	return glm::vec3(x,y,z);
+}
+
+__host__ __device__ glm::vec3 computePhongTotal(ray& r, glm::vec3 intersection_point, glm::vec3 intersection_normal,
+												material intersection_mtl, staticGeom* lights, int numberOfLights,
+												staticGeom* geoms, int numberOfGeoms, material* materials, float time){
+	glm::vec3 rgb(0.0, 0.0, 0.0);
+	/*
+	float n		 = intersection_mtl.specularExponent;
+	glm::vec3 ks = glm::vec3(intersection_mtl.specularColor);
+	glm::vec3 kd = glm::vec3(intersection_mtl.color);
+	glm::vec3 N  = glm::vec3(intersection_normal);
+	glm::vec3 V  = glm::vec3(-r.direction);
+
+	glm::vec3 I, R, L;
+
+	for (int i = 0; i < numberOfLights; i++) {
+		staticGeom light = lights[i];
+
+		float shadow_coefficient = computeShadowCoefficient(intersection_point, light, geoms, numberOfGeoms, time);
+		if (shadow_coefficient > 0.0)
+		{
+			// get point on light source
+			glm::vec3 light_point = getRandomPointOnGeom(light,time);
+			
+			// direction from intersection point to light source
+			L = glm::normalize(light_point - intersection_point);
+			float LdotN = glm::dot(L,N);
+			//if (LdotN<0) LdotN=0.0f; if (LdotN>1) LdotN=1.0f;
+			
+			// direction of perfect specular reflection
+			R = glm::normalize(2*LdotN*N - L);
+			float RdotV = glm::dot(R,V);
+			if (RdotV<0) RdotV=0.0f; if (RdotV>1) RdotV=1.0f;
+
+			// light material
+			material light_mtl = materials[light.materialid];
+			// light intensity
+			I = light_mtl.color * min((float)1.0, materials[light.materialid].emittance);
+
+			// specular phong term
+			glm::vec3 specular;
+			if (n == 0.0f) { specular = glm::vec3(0.0f,0.0f,0.0f); }
+			else		   { specular = ks*pow(RdotV, n)*0.5f; }
+			if (specular.x > 1.0f) { specular.x = 1.0f; } else if (specular.x < 0.0f) { specular.x = 0.0f; }
+			if (specular.y > 1.0f) { specular.y = 1.0f; } else if (specular.y < 0.0f) { specular.y = 0.0f; }
+			if (specular.z > 1.0f) { specular.z = 1.0f; } else if (specular.z < 0.0f) { specular.z = 0.0f; }
+			specular *= glm::vec3(0.1f, 0.1f, 0.1f); //scale back specular component, rendering too bright
+
+			// diffuse phong term
+			glm::vec3 diffuse  = kd*LdotN;
+			
+			// phong reflectance model
+			rgb += (diffuse + specular) * shadow_coefficient * I;
+			rgb += intersection_mtl.emittance;
+		}
+	}
+	if (rgb.x > 1.0f) { rgb.x = 1.0f; } else if (rgb.x < 0.0f) { rgb.x = 0.0f; }
+	if (rgb.y > 1.0f) { rgb.y = 1.0f; } else if (rgb.y < 0.0f) { rgb.y = 0.0f; }
+	if (rgb.z > 1.0f) { rgb.z = 1.0f; } else if (rgb.z < 0.0f) { rgb.z = 0.0f; }
+	*/
+	return rgb;
+}
+
+__host__ __device__ float computeShadowCoefficient(glm::vec3 intersection_point, staticGeom light, 
+												   staticGeom* geoms, int numberOfGeoms, float randomSeed) {
+
+	//glm::vec3 ro = glm::vec3(intersection_point);
+    //glm::vec3 rd = multiplyMV(light.transform, glm::vec4(0,0,0,1.0f)) - intersection_point;
+	//ray rt; rt.origin = ro; rt.direction = rd;
+
+	thrust::default_random_engine rng(hash(randomSeed));
+    thrust::uniform_real_distribution<float> u01(-0.5,0.5);
+    glm::vec3 random_light_point = getRandomPointOnGeom(light,randomSeed);
+    glm::vec3 ro = glm::vec3(intersection_point);
+    glm::vec3 rd = random_light_point - intersection_point;
+	ray rt; rt.origin = ro; rt.direction = rd;
+
+    glm::vec3 shadow_point;
+    glm::vec3 shadow_normal;
+    float dist_to_light = geomIntersectionTest(light, rt, shadow_point, shadow_normal);
+  
+    for (int i = 0; i < numberOfGeoms; i++) {
+  
+        // return values for intersection tests
+        float t = -1.0;
+
+        // current geometry object
+        staticGeom geom = geoms[i];
+
+        // if the geometry is equivalent to the light source, skip it
+        if (geom.objectid == light.objectid)
+            continue;
+
+        // test for intersections with sphere/box
+        t = geomIntersectionTest(geom, rt, shadow_point, shadow_normal);
+
+        // see if geometry was intersected before the light source
+        float error = 1e-3;
+        if ((t > error) && (t < dist_to_light))
+            return (0.0f);
+    }
+	//account for linear attenuation of light source (unless geom is light source)
+	if (dist_to_light > 1e-4) { return 1.0f/(0.25f*dist_to_light); }
+	else					  { return 1.0f;					   }
 }
 
 //TODO (PARTIALLY OPTIONAL): IMPLEMENT THIS FUNCTION

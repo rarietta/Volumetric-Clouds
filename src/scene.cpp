@@ -25,6 +25,12 @@ scene::scene(string filename){
 				}else if(strcmp(tokens[0].c_str(), "OBJECT")==0){
 				    loadObject(tokens[1]);
 				    cout << " " << endl;
+				}else if(strcmp(tokens[0].c_str(), "LIGHT")==0){
+				    loadLight(tokens[1]);
+				    cout << " " << endl;
+				}else if(strcmp(tokens[0].c_str(), "VOLUME")==0){
+				    loadVolume(tokens[1]);
+				    cout << " " << endl;
 				}else if(strcmp(tokens[0].c_str(), "CAMERA")==0){
 				    loadCamera();
 				    cout << " " << endl;
@@ -42,6 +48,7 @@ int scene::loadObject(string objectid){
     }else{
         cout << "Loading Object " << id << "..." << endl;
         geom newObject;
+		newObject.objectid = id;
         string line;
         
         //load object type 
@@ -134,24 +141,116 @@ int scene::loadObject(string objectid){
     }
 }
 
+int scene::loadVolume(string volumeid){
+	
+	int id = atoi(volumeid.c_str());
+	
+	if(id!=volumes.size())
+	{
+		cout << "ERROR: VOLUME ID does not match expected number of volumes" << endl;
+		return -1;
+	}
+	
+	else
+	{
+		cout << "Loading Volume " << id << "..." << endl;
+		volume newVolume;
+		newVolume.volumeid = id;
+		string line;
+        
+		// get static data
+		for(int i=0; i<4; i++){
+			utilityCore::safeGetline(fp_in,line);
+			vector<string> tokens = utilityCore::tokenizeString(line);
+			if(strcmp(tokens[0].c_str(), "mtid")==0){
+				newVolume.materialid = atoi(tokens[1].c_str());
+				cout << "Connecting Object " << volumeid << " to Material " << newVolume.materialid << "..." << endl;
+			}else if(strcmp(tokens[0].c_str(), "delt")==0){
+				newVolume.delt = atof(tokens[1].c_str());
+			}else if(strcmp(tokens[0].c_str(), "step")==0){
+				newVolume.step = atof(tokens[1].c_str());
+			}else if(strcmp(tokens[0].c_str(), "xyzc")==0){
+				newVolume.xyzc = glm::vec3(atoi(tokens[1].c_str()), atoi(tokens[2].c_str()), atoi(tokens[3].c_str()));
+			}
+		}
+		
+		newVolume.translation = glm::vec3(0.0f);
+		newVolume.rotation = glm::vec3(0.0f);
+		newVolume.scale = glm::vec3(newVolume.xyzc.x*newVolume.delt, newVolume.xyzc.y*newVolume.delt, newVolume.xyzc.z*newVolume.delt);
+		glm::mat4 transform = utilityCore::buildTransformationMatrix(newVolume.translation, newVolume.rotation, newVolume.scale);
+		newVolume.transform = utilityCore::glmMat4ToCudaMat4(transform);
+		newVolume.inverseTransform = utilityCore::glmMat4ToCudaMat4(glm::inverse(transform));
+
+	    //check frame number
+	    vector<string> tokens = utilityCore::tokenizeString(line);
+
+		// read voxel data
+		int numVoxels = newVolume.xyzc.x * newVolume.xyzc.y * newVolume.xyzc.z;
+		newVolume.densities = new float[numVoxels];
+		for (int i = 0; i < numVoxels; i++) {
+			utilityCore::safeGetline(fp_in,line);
+			vector<string> tokens = utilityCore::tokenizeString(line);
+			newVolume.densities[i] = (atof(tokens[0].c_str()));
+			if (i % 1000 == 0) { cout << "loaded voxel " << i << endl; }
+		}
+
+		volumes.push_back(newVolume);
+	
+		cout << "Loaded Volume " << volumeid << "!" << endl;
+			return 1;
+	}
+}
+
+int scene::loadLight(string lightid){
+	int id = atoi(lightid.c_str());
+	if(id!=lights.size()){
+		cout << "ERROR: LIGHT ID does not match expected number of lights" << endl;
+		return -1;
+	}else{
+		cout << "Loading Light " << id << "..." << endl;
+		light newLight;
+		newLight.lightid = id;
+               
+		//load static properties
+		for(int i = 0; i < 2; i++){
+			string line;
+            utilityCore::safeGetline(fp_in,line);
+			vector<string> tokens = utilityCore::tokenizeString(line);
+			if(strcmp(tokens[0].c_str(), "lcol")==0){
+				glm::vec3 color( atof(tokens[1].c_str()), atof(tokens[2].c_str()), atof(tokens[3].c_str()) );
+				newLight.color = color;
+			}else if(strcmp(tokens[0].c_str(), "lcol")==0){
+				glm::vec3 position( atof(tokens[1].c_str()), atof(tokens[2].c_str()), atof(tokens[3].c_str()) );
+				newLight.position = position;				  
+			}
+		}
+	
+		lights.push_back(newLight);
+	
+		cout << "Loaded Light " << lightid << "!" << endl;
+			return 1;
+	}
+}
 int scene::loadCamera(){
-	cout << "Loading Camera ..." << endl;
-        camera newCamera;
+	printf("Loading Camera ...\n");
+	camera newCamera;
 	float fovy;
 	
 	//load static properties
-	for(int i=0; i<4; i++){
+	for(int i=0; i<5; i++){
 		string line;
         utilityCore::safeGetline(fp_in,line);
 		vector<string> tokens = utilityCore::tokenizeString(line);
-		if(strcmp(tokens[0].c_str(), "RES")==0){
-			newCamera.resolution = glm::vec2(atoi(tokens[1].c_str()), atoi(tokens[2].c_str()));
-		}else if(strcmp(tokens[0].c_str(), "FOVY")==0){
-			fovy = atof(tokens[1].c_str());
-		}else if(strcmp(tokens[0].c_str(), "ITERATIONS")==0){
-			newCamera.iterations = atoi(tokens[1].c_str());
-		}else if(strcmp(tokens[0].c_str(), "FILE")==0){
+		if(strcmp(tokens[0].c_str(), "brgb")==0){
+			newCamera.brgb = glm::vec3(atof(tokens[1].c_str()), atof(tokens[2].c_str()), atof(tokens[3].c_str()));
+		}else if(strcmp(tokens[0].c_str(), "file")==0){
 			newCamera.imageName = tokens[1];
+		}else if(strcmp(tokens[0].c_str(), "reso")==0){
+			newCamera.resolution = glm::vec2(atoi(tokens[1].c_str()), atoi(tokens[2].c_str()));
+		}else if(strcmp(tokens[0].c_str(), "iter")==0){
+			newCamera.iterations = atoi(tokens[1].c_str());
+		}else if(strcmp(tokens[0].c_str(), "fovy")==0){
+			fovy = atof(tokens[1].c_str());
 		}
 	}
         
@@ -162,6 +261,7 @@ int scene::loadCamera(){
 	vector<glm::vec3> positions;
 	vector<glm::vec3> views;
 	vector<glm::vec3> ups;
+
     while (!line.empty() && fp_in.good()){
 	    
 	    //check frame number
@@ -176,11 +276,11 @@ int scene::loadCamera(){
             //glm::vec3 translation; glm::vec3 rotation; glm::vec3 scale;
             utilityCore::safeGetline(fp_in,line);
             tokens = utilityCore::tokenizeString(line);
-            if(strcmp(tokens[0].c_str(), "EYE")==0){
+            if(strcmp(tokens[0].c_str(), "eyep")==0){
                 positions.push_back(glm::vec3(atof(tokens[1].c_str()), atof(tokens[2].c_str()), atof(tokens[3].c_str())));
-            }else if(strcmp(tokens[0].c_str(), "VIEW")==0){
+            }else if(strcmp(tokens[0].c_str(), "vdir")==0){
                 views.push_back(glm::vec3(atof(tokens[1].c_str()), atof(tokens[2].c_str()), atof(tokens[3].c_str())));
-            }else if(strcmp(tokens[0].c_str(), "UP")==0){
+            }else if(strcmp(tokens[0].c_str(), "uvec")==0){
                 ups.push_back(glm::vec3(atof(tokens[1].c_str()), atof(tokens[2].c_str()), atof(tokens[3].c_str())));
             }
 	    }
@@ -210,7 +310,6 @@ int scene::loadCamera(){
 	
 	//set up render camera stuff
 	renderCam.image = new glm::vec3[(int)renderCam.resolution.x*(int)renderCam.resolution.y];
-	renderCam.rayList = new ray[(int)renderCam.resolution.x*(int)renderCam.resolution.y];
 	for(int i=0; i<renderCam.resolution.x*renderCam.resolution.y; i++){
 		renderCam.image[i] = glm::vec3(0,0,0);
 	}
@@ -229,14 +328,14 @@ int scene::loadMaterial(string materialid){
 		material newMaterial;
 	
 		//load static properties
-		for(int i=0; i<10; i++){
+		for(int i=0; i<1; i++){
 			string line;
             utilityCore::safeGetline(fp_in,line);
 			vector<string> tokens = utilityCore::tokenizeString(line);
-			if(strcmp(tokens[0].c_str(), "RGB")==0){
+			if(strcmp(tokens[0].c_str(), "mrgb")==0){
 				glm::vec3 color( atof(tokens[1].c_str()), atof(tokens[2].c_str()), atof(tokens[3].c_str()) );
 				newMaterial.color = color;
-			}else if(strcmp(tokens[0].c_str(), "SPECEX")==0){
+			}/*else if(strcmp(tokens[0].c_str(), "SPECEX")==0){
 				newMaterial.specularExponent = atof(tokens[1].c_str());				  
 			}else if(strcmp(tokens[0].c_str(), "SPECRGB")==0){
 				glm::vec3 specColor( atof(tokens[1].c_str()), atof(tokens[2].c_str()), atof(tokens[3].c_str()) );
@@ -256,8 +355,7 @@ int scene::loadMaterial(string materialid){
 				newMaterial.reducedScatterCoefficient = atof(tokens[1].c_str());					  
 			}else if(strcmp(tokens[0].c_str(), "EMITTANCE")==0){
 				newMaterial.emittance = atof(tokens[1].c_str());					  
-			
-			}
+			}*/
 		}
 		materials.push_back(newMaterial);
 		return 1;

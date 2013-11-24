@@ -29,6 +29,7 @@ namespace utilityCore {
     extern float clamp(float f, float min, float max);
     extern bool replaceString(std::string& str, const std::string& from, const std::string& to);
     extern glm::vec3 clampRGB(glm::vec3 color);
+    extern glm::vec3 clampLight(glm::vec3 color);
     extern bool epsilonCheck(float a, float b);
     extern std::vector<std::string> tokenizeString(std::string str); 
     extern cudaMat4 glmMat4ToCudaMat4(glm::mat4 a);
