@@ -5,7 +5,7 @@ CAMERA
 brgb 0.27 0.51 0.71
 file BabysFirstCloudImage.bmp
 reso 600 600
-iter 50
+iter 1
 fovy 45
 frame 0
 eyep 0 0 200

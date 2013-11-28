@@ -122,14 +122,13 @@ __global__ void sendImageToPBO(uchar4* PBOpos, glm::vec2 resolution, glm::vec3* 
 
 //TODO: IMPLEMENT THIS FUNCTION
 //Core raytracer kernel
-__global__ void raytraceRay(glm::vec2 resolution, float time, cameraData cam, glm::vec3* colors, staticGeom* lights, int numberOfLights,
+__global__ void raytraceRay(glm::vec2 resolution, float time, cameraData cam, glm::vec3* colors, light* lights, int numberOfLights,
 							material* materials, volume* volumes, int numberOfVolumes, float iterations)
 {
 	// Find index of pixel and create empty color vector
 	int x = (blockIdx.x * blockDim.x) + threadIdx.x;
 	int y = (blockIdx.y * blockDim.y) + threadIdx.y;
 	int index = x + (y * resolution.x);
-	glm::vec3 newColor = cam.brgb;
 
 	// Get initial ray from camera through this position
 	ray currentRay = raycastFromCameraKernel(resolution, time, x, y, cam.position, cam.view, cam.up, cam.fov);
@@ -144,24 +143,56 @@ __global__ void raytraceRay(glm::vec2 resolution, float time, cameraData cam, gl
 	glm::vec3 intersection_normal;
 	material  intersection_mtl;
 
+	float k = 0.2f;
+	glm::vec3 newColor = glm::vec3(0.0f);
+	
+	glm::vec3 CF;
+	float T = 1.0;
+	float Q = 1.0;
 
-	// if voxel grid is intersected, march through it
 	if (volumeIntersectionTest(volumes[0], currentRay, intersection_point) > 0.0)
 	{
 		glm::vec3 marchPoint = intersection_point;
+		glm::vec3 volCol = materials[volumes[0].materialid].color;
 
-		glm::vec3 voxelIndex = getVoxelIndex(marchPoint, volumes[0]);
-		while (voxelIndex.x >= 0) {
-			//float xCol = voxelIndex.x / volumes[0].xyzc.x;
-			//float yCol = voxelIndex.y / volumes[0].xyzc.y;
-			//float zCol = voxelIndex.z / volumes[0].xyzc.z;
-			//newColor = glm::mix(newColor, glm::vec3(xCol,yCol,zCol), 0.5f);
-			newColor = glm::mix(newColor, materials[volumes[0].materialid].color, volumes[0].densities[0]);
+		int voxelIndex = getVoxelIndex(marchPoint, volumes[0]);
+		while (voxelIndex >= 0) {
+
+			float p =  volumes[0].densities[voxelIndex];
+
+			float deltaT = exp(-k*volumes[0].step*p);
+				
+			for (int i = 0; i < numberOfLights; i++)
+			{
+				light L = lights[i];
+				glm::vec3 F = L.color;
+				glm::vec3 lightPoint = marchPoint; 
+				glm::vec3 lightDir = glm::normalize(L.position - marchPoint);
+				
+				int lightVoxelIndex = getVoxelIndex(lightPoint, volumes[0]);
+				while (lightVoxelIndex >= 0) 
+				{
+					float pLight = volumes[0].densities[lightVoxelIndex];
+					float deltaQ = exp(-k*volumes[0].step*pLight);
+					Q *= deltaQ;
+
+					CF = volCol * F;
+
+					lightPoint += lightDir * volumes[0].step;
+					lightVoxelIndex = getVoxelIndex(lightPoint, volumes[0]);
+				}
+			}
+
+			T *= deltaT;
+			newColor += (1.0f - deltaT)/k * (CF * T * Q);
+			//if (T < 0.01) break;
 
 			marchPoint += volumes[0].step * glm::normalize(currentRay.direction);
 			voxelIndex = getVoxelIndex(marchPoint, volumes[0]);
 		}
 	} 
+
+	newColor = glm::mix(newColor, cam.brgb, T);
 
 	/*
 	do {
@@ -251,7 +282,7 @@ void cudaRaytraceCore(uchar4* PBOpos, camera* renderCam, int frame, int timestep
 		
 		float* densities = new float[numVoxels];
 		for (int v = 0; v < numVoxels; v++)
-			newVolume.densities[v] = volumes[i].densities[v];
+			densities[v] = volumes[i].densities[v];
 		totalVoxels += numVoxels;
 		cudaMemcpy(cudaVolumeDensities, densities, numVoxels*sizeof(float), cudaMemcpyHostToDevice);
 		newVolume.densities = cudaVolumeDensities;
@@ -281,9 +312,9 @@ void cudaRaytraceCore(uchar4* PBOpos, camera* renderCam, int frame, int timestep
 		newLight.color = lights[i].color;
 		lightList[i] = newLight;
 	}
-	staticGeom* cudalights = NULL;
-	cudaMalloc((void**)&cudalights, numberOfLights*sizeof(staticGeom));
-	cudaMemcpy(cudalights, lightList, numberOfLights*sizeof(staticGeom), cudaMemcpyHostToDevice);
+	light* cudalights = NULL;
+	cudaMalloc((void**)&cudalights, numberOfLights*sizeof(light));
+	cudaMemcpy(cudalights, lightList, numberOfLights*sizeof(light), cudaMemcpyHostToDevice);
   
 	//package camera
 	cameraData cam;

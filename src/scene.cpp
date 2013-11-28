@@ -191,7 +191,7 @@ int scene::loadVolume(string volumeid){
 			utilityCore::safeGetline(fp_in,line);
 			vector<string> tokens = utilityCore::tokenizeString(line);
 			newVolume.densities[i] = (atof(tokens[0].c_str()));
-			if (i % 1000 == 0) { cout << "loaded voxel " << i << endl; }
+			if (i % 10000 == 0) { cout << "loaded voxel " << i << endl; }
 		}
 
 		volumes.push_back(newVolume);
@@ -219,7 +219,7 @@ int scene::loadLight(string lightid){
 			if(strcmp(tokens[0].c_str(), "lcol")==0){
 				glm::vec3 color( atof(tokens[1].c_str()), atof(tokens[2].c_str()), atof(tokens[3].c_str()) );
 				newLight.color = color;
-			}else if(strcmp(tokens[0].c_str(), "lcol")==0){
+			}else if(strcmp(tokens[0].c_str(), "lpos")==0){
 				glm::vec3 position( atof(tokens[1].c_str()), atof(tokens[2].c_str()), atof(tokens[3].c_str()) );
 				newLight.position = position;				  
 			}

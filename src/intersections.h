@@ -79,7 +79,7 @@ __host__ __device__ float geomIntersectionTest(staticGeom geom, ray r, glm::vec3
 }
 
 //Volume intersection test, return -1 if no intersection, otherwise distance to intersection
-__host__ __device__ glm::vec3 getVoxelIndex(glm::vec3 P, volume V){	
+__host__ __device__ int getVoxelIndex(glm::vec3 P, volume V){	
 
 	// multiply by inverse transform
 	glm::vec3 Pt = multiplyMV(V.inverseTransform, glm::vec4(P,1.0f));
@@ -89,19 +89,25 @@ __host__ __device__ glm::vec3 getVoxelIndex(glm::vec3 P, volume V){
 		(Pt.y >= (-0.5 - error)) && (Pt.y <= (0.5 + error)) && 
 		(Pt.z >= (-0.5 - error)) && (Pt.z <= (0.5 + error)))
 	{
-		int x = (Pt.x + 0.5f) * V.xyzc.x;
-		int y = (Pt.y + 0.5f) * V.xyzc.y;
-		int z = (Pt.z + 0.5f) * V.xyzc.z;
+		int x = floor((Pt.x + 0.5f) * V.xyzc.x);
+		int y = floor((Pt.y + 0.5f) * V.xyzc.y);
+		int z = floor((Pt.z + 0.5f) * V.xyzc.z);
 
-		return glm::vec3(x,y,z);
+		return x*V.xyzc.y*V.xyzc.z + y*V.xyzc.z + z;
 	}
 
-	return glm::vec3(-1);
+	return -1;
 }
 
 //Volume intersection test, return -1 if no intersection, otherwise distance to intersection
 __host__ __device__ float volumeIntersectionTest(volume vol, ray r, glm::vec3& intersectionPoint){
 	
+	if (getVoxelIndex(r.origin, vol) >= 0)
+	{
+		intersectionPoint = r.origin;
+		return 0.0f;
+	}
+
 	glm::vec3 ro = multiplyMV(vol.inverseTransform, glm::vec4(r.origin,1.0f));
 	glm::vec3 rd = glm::normalize(multiplyMV(vol.inverseTransform, glm::vec4(r.direction,0.0f)));
 
