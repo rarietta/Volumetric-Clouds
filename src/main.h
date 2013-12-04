@@ -26,6 +26,7 @@
 #include "sceneStructs.h"
 #include "glm/glm.hpp"
 #include "image.h"
+#include "perlin.h"
 #include "raytraceKernel.h"
 #include "utilities.h"
 #include "scene.h"
@@ -70,6 +71,17 @@ GLuint displayImage;
 int width=800; int height=800;
 
 //-------------------------------
+//----------GLUT STUFF-----------
+//-------------------------------
+
+static int GLUTwindow = 0;
+static int GLUTwindow_height = height;
+static int GLUTwindow_width = width;
+static int GLUTmouse[2] = { 0, 0 };
+static int GLUTbutton[3] = { 0, 0, 0 };
+static int GLUTmodifiers = 0;
+
+//-------------------------------
 //-------------MAIN--------------
 //-------------------------------
 
@@ -102,6 +114,8 @@ void initPBO(GLuint* pbo);
 void initCuda();
 void initTextures();
 void initVAO();
+void GLUTMouse(int button, int state, int x, int y);
+void GLUTMotion(int x, int y);
 GLuint initShader(const char *vertexShaderPath, const char *fragmentShaderPath);
 
 //-------------------------------

@@ -6,13 +6,14 @@
 //       Yining Karl Li's TAKUA Render, a massively parallel pathtracing renderer: http://www.yiningkarlli.com
 
 #ifndef RAYTRACEKERNEL_H
-#define PATHTRACEKERNEL_H
+#define RAYTRACEKERNEL_H
 
 #include <stdio.h>
 #include <thrust/random.h>
 #include <cuda.h>
 #include <cmath>
 #include "sceneStructs.h"
+#include "perlin.h"
 
 #if CUDA_VERSION >= 5000
     #include <helper_math.h>
@@ -20,7 +21,7 @@
     #include <cutil_math.h>
 #endif
 
-void cudaRaytraceCore(uchar4* pos, camera* renderCam, int frame, int timestep, material* materials, int numberOfMaterials,
-					  volume* volumes, int numberOfVolumes, light* lights, int numberOfLights);
+void cudaRaytraceCore(uchar4* pos, camera* renderCam, int timestep, material* materials, int numberOfMaterials,
+					  volume* volumes, int numberOfVolumes, light* lights, int numberOfLights, Perlin* perlin);
 
 #endif

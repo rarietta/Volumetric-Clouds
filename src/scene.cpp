@@ -183,15 +183,12 @@ int scene::loadVolume(string volumeid){
 
 	    //check frame number
 	    vector<string> tokens = utilityCore::tokenizeString(line);
-
+		
 		// read voxel data
 		int numVoxels = newVolume.xyzc.x * newVolume.xyzc.y * newVolume.xyzc.z;
 		newVolume.densities = new float[numVoxels];
 		for (int i = 0; i < numVoxels; i++) {
-			utilityCore::safeGetline(fp_in,line);
-			vector<string> tokens = utilityCore::tokenizeString(line);
-			newVolume.densities[i] = (atof(tokens[0].c_str()));
-			if (i % 10000 == 0) { cout << "loaded voxel " << i << endl; }
+			newVolume.densities[i] = 0.0f;
 		}
 
 		volumes.push_back(newVolume);
@@ -237,7 +234,7 @@ int scene::loadCamera(){
 	float fovy;
 	
 	//load static properties
-	for(int i=0; i<5; i++){
+	for(int i=0; i<8; i++){
 		string line;
         utilityCore::safeGetline(fp_in,line);
 		vector<string> tokens = utilityCore::tokenizeString(line);
@@ -249,57 +246,17 @@ int scene::loadCamera(){
 			newCamera.resolution = glm::vec2(atoi(tokens[1].c_str()), atoi(tokens[2].c_str()));
 		}else if(strcmp(tokens[0].c_str(), "iter")==0){
 			newCamera.iterations = atoi(tokens[1].c_str());
+		}else if(strcmp(tokens[0].c_str(), "eyep")==0){
+			newCamera.position = glm::vec3(atof(tokens[1].c_str()), atof(tokens[2].c_str()), atof(tokens[3].c_str()));
+		}else if(strcmp(tokens[0].c_str(), "vdir")==0){
+			newCamera.view = glm::vec3(atof(tokens[1].c_str()), atof(tokens[2].c_str()), atof(tokens[3].c_str()));
+		}else if(strcmp(tokens[0].c_str(), "uvec")==0){
+			newCamera.up = glm::vec3(atof(tokens[1].c_str()), atof(tokens[2].c_str()), atof(tokens[3].c_str()));
 		}else if(strcmp(tokens[0].c_str(), "fovy")==0){
 			fovy = atof(tokens[1].c_str());
 		}
 	}
-        
-	//load time variable properties (frames)
-    int frameCount = 0;
-	string line;
-    utilityCore::safeGetline(fp_in,line);
-	vector<glm::vec3> positions;
-	vector<glm::vec3> views;
-	vector<glm::vec3> ups;
-
-    while (!line.empty() && fp_in.good()){
-	    
-	    //check frame number
-	    vector<string> tokens = utilityCore::tokenizeString(line);
-        if(strcmp(tokens[0].c_str(), "frame")!=0 || atoi(tokens[1].c_str())!=frameCount){
-            cout << "ERROR: Incorrect frame count!" << endl;
-            return -1;
-        }
-	    
-	    //load camera properties
-	    for(int i=0; i<3; i++){
-            //glm::vec3 translation; glm::vec3 rotation; glm::vec3 scale;
-            utilityCore::safeGetline(fp_in,line);
-            tokens = utilityCore::tokenizeString(line);
-            if(strcmp(tokens[0].c_str(), "eyep")==0){
-                positions.push_back(glm::vec3(atof(tokens[1].c_str()), atof(tokens[2].c_str()), atof(tokens[3].c_str())));
-            }else if(strcmp(tokens[0].c_str(), "vdir")==0){
-                views.push_back(glm::vec3(atof(tokens[1].c_str()), atof(tokens[2].c_str()), atof(tokens[3].c_str())));
-            }else if(strcmp(tokens[0].c_str(), "uvec")==0){
-                ups.push_back(glm::vec3(atof(tokens[1].c_str()), atof(tokens[2].c_str()), atof(tokens[3].c_str())));
-            }
-	    }
-	    
-	    frameCount++;
-        utilityCore::safeGetline(fp_in,line);
-	}
-	newCamera.frames = frameCount;
-	
-	//move frames into CUDA readable arrays
-	newCamera.positions = new glm::vec3[frameCount];
-	newCamera.views = new glm::vec3[frameCount];
-	newCamera.ups = new glm::vec3[frameCount];
-	for(int i=0; i<frameCount; i++){
-		newCamera.positions[i] = positions[i];
-		newCamera.views[i] = views[i];
-		newCamera.ups[i] = ups[i];
-	}
-
+    
 	//calculate fov based on resolution
 	float yscaled = tan(fovy*(PI/180));
 	float xscaled = (yscaled * newCamera.resolution.x)/newCamera.resolution.y;
@@ -314,7 +271,7 @@ int scene::loadCamera(){
 		renderCam.image[i] = glm::vec3(0,0,0);
 	}
 	
-	cout << "Loaded " << frameCount << " frames for camera!" << endl;
+	cout << "Loaded camera!" << endl;
 	return 1;
 }
 
@@ -335,27 +292,7 @@ int scene::loadMaterial(string materialid){
 			if(strcmp(tokens[0].c_str(), "mrgb")==0){
 				glm::vec3 color( atof(tokens[1].c_str()), atof(tokens[2].c_str()), atof(tokens[3].c_str()) );
 				newMaterial.color = color;
-			}/*else if(strcmp(tokens[0].c_str(), "SPECEX")==0){
-				newMaterial.specularExponent = atof(tokens[1].c_str());				  
-			}else if(strcmp(tokens[0].c_str(), "SPECRGB")==0){
-				glm::vec3 specColor( atof(tokens[1].c_str()), atof(tokens[2].c_str()), atof(tokens[3].c_str()) );
-				newMaterial.specularColor = specColor;
-			}else if(strcmp(tokens[0].c_str(), "REFL")==0){
-				newMaterial.hasReflective = atof(tokens[1].c_str());
-			}else if(strcmp(tokens[0].c_str(), "REFR")==0){
-				newMaterial.hasRefractive = atof(tokens[1].c_str());
-			}else if(strcmp(tokens[0].c_str(), "REFRIOR")==0){
-				newMaterial.indexOfRefraction = atof(tokens[1].c_str());					  
-			}else if(strcmp(tokens[0].c_str(), "SCATTER")==0){
-				newMaterial.hasScatter = atof(tokens[1].c_str());
-			}else if(strcmp(tokens[0].c_str(), "ABSCOEFF")==0){
-				glm::vec3 abscoeff( atof(tokens[1].c_str()), atof(tokens[2].c_str()), atof(tokens[3].c_str()) );
-				newMaterial.absorptionCoefficient = abscoeff;
-			}else if(strcmp(tokens[0].c_str(), "RSCTCOEFF")==0){
-				newMaterial.reducedScatterCoefficient = atof(tokens[1].c_str());					  
-			}else if(strcmp(tokens[0].c_str(), "EMITTANCE")==0){
-				newMaterial.emittance = atof(tokens[1].c_str());					  
-			}*/
+			}
 		}
 		materials.push_back(newMaterial);
 		return 1;

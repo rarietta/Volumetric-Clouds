@@ -79,6 +79,17 @@ __host__ __device__ float geomIntersectionTest(staticGeom geom, ray r, glm::vec3
 }
 
 //Volume intersection test, return -1 if no intersection, otherwise distance to intersection
+__host__ __device__ glm::vec3 getLocalVoxelPosition(glm::vec3 p, volume V)
+{	
+	float px = (p.x / V.xyzc.x);// - 0.5f;
+	float py = (p.y / V.xyzc.y);// - 0.5f;
+	float pz = (p.z / V.xyzc.z);// - 0.5f;
+
+	glm::vec3 pos(px, py, pz);
+	return pos;
+}
+
+//Volume intersection test, return -1 if no intersection, otherwise distance to intersection
 __host__ __device__ int getVoxelIndex(glm::vec3 P, volume V){	
 
 	// multiply by inverse transform

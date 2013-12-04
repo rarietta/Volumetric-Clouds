@@ -25,7 +25,6 @@ int main(int argc, char** argv){
   bool loadedScene = false;
   finishedRender = false;
 
-  targetFrame = 0;
   singleFrameMode = false;
 
   // Load scene file
@@ -36,9 +35,6 @@ int main(int argc, char** argv){
     if(strcmp(header.c_str(), "scene")==0){
       renderScene = new scene(data);
       loadedScene = true;
-    }else if(strcmp(header.c_str(), "frame")==0){
-      targetFrame = atoi(data.c_str());
-      singleFrameMode = true;
     }
   }
 
@@ -52,11 +48,6 @@ int main(int argc, char** argv){
   renderCam = &renderScene->renderCam;
   width = renderCam->resolution[0];
   height = renderCam->resolution[1];
-
-  if(targetFrame>=renderCam->frames){
-    cout << "Warning: Specified target frame is out of range, defaulting to frame 0." << endl;
-    targetFrame = 0;
-  }
 
   // Launch CUDA/GL
 
@@ -90,6 +81,8 @@ int main(int argc, char** argv){
   #else
 	  glutDisplayFunc(display);
 	  glutKeyboardFunc(keyboard);
+	  glutMouseFunc(GLUTMouse);
+	  glutMotionFunc(GLUTMotion);
 
 	  glutMainLoop();
   #endif
@@ -105,82 +98,76 @@ void runCuda(){
   // Map OpenGL buffer object for writing from CUDA on a single GPU
   // No data is moved (Win & Linux). When mapped to CUDA, OpenGL should not use this buffer
   
-	if(iterations < renderCam->iterations) {
-		uchar4 *dptr=NULL;
-		iterations++;
-		cudaGLMapBufferObject((void**)&dptr, pbo);
+	iterations++;
+
+	uchar4 *dptr=NULL;
+	cudaGLMapBufferObject((void**)&dptr, pbo);
   
-		//pack geom and material arrays
-		geom* geoms = new geom[renderScene->objects.size()];
-		light* lights = new light[renderScene->lights.size()];
-		volume* volumes = new volume[renderScene->volumes.size()];
-		material* materials = new material[renderScene->materials.size()];
+	// create perlin instance
+	Perlin* perlin = new Perlin(12, 8, .4, 9);
+
+	//pack geom and material arrays
+	geom* geoms = new geom[renderScene->objects.size()];
+	light* lights = new light[renderScene->lights.size()];
+	volume* volumes = new volume[renderScene->volumes.size()];
+	material* materials = new material[renderScene->materials.size()];
     
-		for(int i=0; i<renderScene->objects.size(); i++){
-			geoms[i] = renderScene->objects[i];
-		}
-		for(int i=0; i<renderScene->lights.size(); i++){
-			lights[i] = renderScene->lights[i];
-		}
-		for(int i=0; i<renderScene->volumes.size(); i++){
-			volumes[i] = renderScene->volumes[i];
-		}
-		for(int i=0; i<renderScene->materials.size(); i++){
-			materials[i] = renderScene->materials[i];
-		}
-    
-		// execute the kernel
-		cudaRaytraceCore(dptr, renderCam, targetFrame, iterations, materials, renderScene->materials.size(),
-						 volumes, renderScene->volumes.size(), lights, renderScene->lights.size());
-    
-		// unmap buffer object
-		cudaGLUnmapBufferObject(pbo);
+	for(int i=0; i<renderScene->objects.size(); i++){
+		geoms[i] = renderScene->objects[i];
 	}
-	else {
+	for(int i=0; i<renderScene->lights.size(); i++){
+		lights[i] = renderScene->lights[i];
+	}
+	for(int i=0; i<renderScene->volumes.size(); i++){
+		volumes[i] = renderScene->volumes[i];
+	}
+	for(int i=0; i<renderScene->materials.size(); i++){
+		materials[i] = renderScene->materials[i];
+	}
+    
+	// execute the kernel
+	cudaRaytraceCore(dptr, renderCam, 0, materials, renderScene->materials.size(),
+					 volumes, renderScene->volumes.size(), lights, renderScene->lights.size(), perlin);
+    
+	// unmap buffer object
+	cudaGLUnmapBufferObject(pbo);
 
-		if(!finishedRender){
-			//output image file
-			image outputImage(renderCam->resolution.x, renderCam->resolution.y);
+	// delete stuff
+	delete perlin;
+	delete geoms;
+	delete lights;
+	delete volumes;
+	delete materials;
 
-			for(int x=0; x<renderCam->resolution.x; x++){
-				for(int y=0; y<renderCam->resolution.y; y++){
-					int index = x + (y * renderCam->resolution.x);
-					outputImage.writePixelRGB(renderCam->resolution.x-1-x,y,renderCam->image[index]);
-				}
-			}
+	/*/output image file
+	image outputImage(renderCam->resolution.x, renderCam->resolution.y);
+
+	for(int x=0; x<renderCam->resolution.x; x++){
+		for(int y=0; y<renderCam->resolution.y; y++){
+			int index = x + (y * renderCam->resolution.x);
+			outputImage.writePixelRGB(renderCam->resolution.x-1-x,y,renderCam->image[index]);
+		}
+	}
       
-			gammaSettings gamma;
-			gamma.applyGamma = false;
-			gamma.gamma = 1.0/2.2;
-			gamma.divisor = 1.0;
-			outputImage.setGammaSettings(gamma);
-			string filename = renderCam->imageName;
-			string s;
-			stringstream out;
-			out << targetFrame;
-			s = out.str();
-			utilityCore::replaceString(filename, ".bmp", "."+s+".bmp");
-			utilityCore::replaceString(filename, ".png", "."+s+".png");
-			outputImage.saveImageRGB(filename);
-			cout << "Saved frame " << s << " to " << filename << endl;
-			finishedRender = true;
-			if(singleFrameMode==true){
-				cudaDeviceReset(); 
-				exit(0);
-			}
-		}
-		if(targetFrame < renderCam->frames-1){
+	gammaSettings gamma;
+	gamma.applyGamma = false;
+	gamma.gamma = 1.0/2.2;
+	gamma.divisor = 1.0;
+	outputImage.setGammaSettings(gamma);
+	string filename = renderCam->imageName;
+	string s;
+	stringstream out;
+	out << targetFrame;
+	s = out.str();
+	utilityCore::replaceString(filename, ".bmp", "."+s+".bmp");
+	utilityCore::replaceString(filename, ".png", "."+s+".png");
+	outputImage.saveImageRGB(filename);
+	cout << "Saved frame " << s << " to " << filename << endl;*/
+}
 
-			//clear image buffer and move onto next frame
-			targetFrame++;
-			iterations = 0;
-			for(int i=0; i<renderCam->resolution.x*renderCam->resolution.y; i++){
-				renderCam->image[i] = glm::vec3(0,0,0);
-			}
-			cudaDeviceReset(); 
-			finishedRender = false;
-		}
-	}
+void clearCuda() {
+	for(int i=0; i<renderCam->resolution.x*renderCam->resolution.y; i++)
+		renderCam->image[i] = glm::vec3(0,0,0);
 }
 
 #ifdef __APPLE__
@@ -221,9 +208,11 @@ void runCuda(){
 
 		// VAO, shader program, and texture already bound
 		glDrawElements(GL_TRIANGLES, 6,  GL_UNSIGNED_SHORT, 0);
-
+		
 		glutPostRedisplay();
 		glutSwapBuffers();
+
+		clearCuda();
 	}
 
 	void keyboard(unsigned char key, int x, int y)
@@ -284,6 +273,74 @@ void runCuda(){
 	}
 #endif
 
+void GLUTMouse(int button, int state, int x, int y)
+{  
+	// Process mouse button event
+	if (state == GLUT_DOWN) {
+	if (button == GLUT_LEFT_BUTTON) {
+	}
+	else if (button == GLUT_MIDDLE_BUTTON) {
+	}
+	else if (button == GLUT_RIGHT_BUTTON) {
+	}
+	}
+
+	// Remember button state 
+	int b = (button == GLUT_LEFT_BUTTON) ? 0 : ((button == GLUT_MIDDLE_BUTTON) ? 1 : 2);
+	GLUTbutton[b] = (state == GLUT_DOWN) ? 1 : 0;
+
+	// Remember modifiers 
+	GLUTmodifiers = glutGetModifiers();
+
+	// Remember mouse position 
+	GLUTmouse[0] = x;
+	GLUTmouse[1] = y;
+
+	// Redraw
+	glutPostRedisplay();
+}
+
+void GLUTMotion(int x, int y) {
+  
+	// Compute mouse movement
+	int dx = x - GLUTmouse[0];
+	int dy = y - GLUTmouse[1];
+  
+	// Process mouse motion event
+	if ((dx != 0) || (dy != 0)) {
+		if ((GLUTbutton[0] && (GLUTmodifiers & GLUT_ACTIVE_SHIFT)) || GLUTbutton[1]) {
+			// Scale world 
+			float factor = (float) dx / GLUTwindow_width;
+			factor += (float) dy / GLUTwindow_height;
+			factor = exp(2.0 * factor);
+			factor = (factor - 1.0) / factor;
+			glm::vec3 translation = (glm::vec3(0) - renderCam->position) * factor;
+			renderCam->position += translation;
+			float camera_zoom = glm::length(renderCam->position);
+			glutPostRedisplay();
+		}
+		else if (GLUTbutton[0]) {
+			// Rotate world
+			dx = -dx;
+			float camera_zoom = glm::length(renderCam->position);
+			float length = glm::length(renderCam->position) * 2.0f * tan(renderCam->fov.y);
+			float vx = length * (float) dx / GLUTwindow_width;
+			float vy = length * (float) dy / GLUTwindow_height;
+			glm::vec3 camera_right = glm::cross(renderCam->up, renderCam->view);
+			glm::vec3 translation = -((camera_right * vx) + (renderCam->up * vy));
+			renderCam->position += translation;
+			renderCam->position = glm::normalize(renderCam->position) * camera_zoom;
+			renderCam->view = glm::normalize(renderCam->position - glm::vec3(0.0f));
+			renderCam->up -= glm::dot(renderCam->up, renderCam->view)*renderCam->view;
+			glutPostRedisplay();
+		}
+	}
+
+	// Remember mouse position 
+	GLUTmouse[0] = x;
+	GLUTmouse[1] = y;
+}
+
 void initPBO(GLuint* pbo){
   if (pbo) {
     // set up vertex data parameter
@@ -310,7 +367,7 @@ void initCuda(){
   // Clean up on program exit
   atexit(cleanupCuda);
 
-  runCuda();
+  //runCuda();
 }
 
 void initTextures(){

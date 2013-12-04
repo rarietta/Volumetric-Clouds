@@ -82,13 +82,12 @@ struct camera {
 	glm::vec3 xyzc;				// dimension of voxel grid
 
 	// intrinsic camera stuff
-	glm::vec3* positions;		// eye positions
-	glm::vec3* views;			// camera directions
-	glm::vec3* ups;				// up vectors
+	glm::vec3 position;			// eye positions
+	glm::vec3 view;				// camera directions
+	glm::vec3 up;				// up vectors
 	glm::vec2 fov;				// y-field-of-view
 
 	// render data
-	int frames;					// number of frames
 	glm::vec3 brgb;				// background color of render
 	glm::vec3* image;			// final image
 	glm::vec2 resolution;		// resolution of image

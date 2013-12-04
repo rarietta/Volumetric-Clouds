@@ -14,7 +14,6 @@
 #include "raytraceKernel.h"
 #include "intersections.h"
 #include "interactions.h"
-#include "perlin.h"
 #include <vector>
 
 #if CUDA_VERSION >= 5000
@@ -122,8 +121,27 @@ __global__ void sendImageToPBO(uchar4* PBOpos, glm::vec2 resolution, glm::vec3* 
 
 //TODO: IMPLEMENT THIS FUNCTION
 //Core raytracer kernel
+__global__ void voxelizeVolumeWithNoise(volume* volumes, Perlin* perlin)
+{
+	volume V = volumes[0];
+
+	int x = (blockIdx.x * blockDim.x) + threadIdx.x;
+	int y = (blockIdx.y * blockDim.y) + threadIdx.y;
+	int z = (blockIdx.z * blockDim.z) + threadIdx.z;
+	int voxelIndex = z*V.xyzc.x*V.xyzc.y + y*V.xyzc.x + x;
+
+	glm::vec3 localPosition3D = getLocalVoxelPosition(glm::vec3((float)x, (float)y, (float)z), V);
+	float length = glm::length(localPosition3D);
+
+	float p = perlin->Get(localPosition3D)  * (1.0f - length);
+	if (voxelIndex < V.xyzc.x*V.xyzc.y*V.xyzc.z)
+		V.densities[voxelIndex] = p;
+}
+
+//TODO: IMPLEMENT THIS FUNCTION
+//Core raytracer kernel
 __global__ void raytraceRay(glm::vec2 resolution, float time, cameraData cam, glm::vec3* colors, light* lights, int numberOfLights,
-							material* materials, volume* volumes, int numberOfVolumes, float iterations)
+							material* materials, volume* volumes, int numberOfVolumes, float iterations, Perlin* perlin)
 {
 	// Find index of pixel and create empty color vector
 	int x = (blockIdx.x * blockDim.x) + threadIdx.x;
@@ -158,7 +176,12 @@ __global__ void raytraceRay(glm::vec2 resolution, float time, cameraData cam, gl
 		int voxelIndex = getVoxelIndex(marchPoint, volumes[0]);
 		while (voxelIndex >= 0) {
 
-			float p =  volumes[0].densities[voxelIndex];
+			float p = volumes[0].densities[voxelIndex];
+			
+			/////////////////
+			//newColor = glm::vec3(p);
+			//break;
+			/////////////////
 
 			float deltaT = exp(-k*volumes[0].step*p);
 				
@@ -185,7 +208,7 @@ __global__ void raytraceRay(glm::vec2 resolution, float time, cameraData cam, gl
 
 			T *= deltaT;
 			newColor += (1.0f - deltaT)/k * (CF * T * Q);
-			//if (T < 0.01) break;
+			if (T < 0.01) break;
 
 			marchPoint += volumes[0].step * glm::normalize(currentRay.direction);
 			voxelIndex = getVoxelIndex(marchPoint, volumes[0]);
@@ -238,14 +261,14 @@ __global__ void raytraceRay(glm::vec2 resolution, float time, cameraData cam, gl
 	//if (newColor.z > 1.0f) { newColor.z = 1.0f; } else if (newColor.z < 0.0f) { newColor.z = 0.0f; }
 	//if((x<=resolution.x && y<=resolution.y))
 	//{
-		colors[index] += newColor / (float)iterations;
+		colors[index] += newColor;
 	//}
 }
 
 //TODO: FINISH THIS FUNCTION
 // Wrapper for the __global__ call that sets up the kernel calls and does a ton of memory management
-void cudaRaytraceCore(uchar4* PBOpos, camera* renderCam, int frame, int timestep, material* materials, int numberOfMaterials, 
-					  volume* volumes, int numberOfVolumes, light* lights, int numberOfLights)
+void cudaRaytraceCore(uchar4* PBOpos, camera* renderCam, int timestep, material* materials, int numberOfMaterials, 
+					  volume* volumes, int numberOfVolumes, light* lights, int numberOfLights, Perlin* perlin)
 {
 	//determines how many bounces the raytracer traces
 	int traceDepth = 3;
@@ -254,7 +277,7 @@ void cudaRaytraceCore(uchar4* PBOpos, camera* renderCam, int frame, int timestep
 	int tileSize = 8;
 	dim3 threadsPerBlock(tileSize, tileSize);
 	dim3 fullBlocksPerGrid((int)ceil(float(renderCam->resolution.x)/float(tileSize)), (int)ceil(float(renderCam->resolution.y)/float(tileSize)));
-  
+
 	//send image to GPU
 	glm::vec3* cudaimage = NULL;
 	cudaMalloc((void**)&cudaimage, (int)renderCam->resolution.x*(int)renderCam->resolution.y*sizeof(glm::vec3));
@@ -282,8 +305,7 @@ void cudaRaytraceCore(uchar4* PBOpos, camera* renderCam, int frame, int timestep
 		
 		float* densities = new float[numVoxels];
 		for (int v = 0; v < numVoxels; v++)
-			densities[v] = volumes[i].densities[v];
-		totalVoxels += numVoxels;
+			densities[v] = 0.0f;
 		cudaMemcpy(cudaVolumeDensities, densities, numVoxels*sizeof(float), cudaMemcpyHostToDevice);
 		newVolume.densities = cudaVolumeDensities;
 
@@ -316,6 +338,11 @@ void cudaRaytraceCore(uchar4* PBOpos, camera* renderCam, int frame, int timestep
 	cudaMalloc((void**)&cudalights, numberOfLights*sizeof(light));
 	cudaMemcpy(cudalights, lightList, numberOfLights*sizeof(light), cudaMemcpyHostToDevice);
   
+	//package perlin
+	Perlin* cudaperlin = NULL;
+	cudaMalloc((void**)&cudaperlin, sizeof(Perlin));
+	cudaMemcpy(cudaperlin, perlin, sizeof(Perlin), cudaMemcpyHostToDevice);
+	
 	//package camera
 	cameraData cam;
 	cam.delt = renderCam->delt;
@@ -323,14 +350,21 @@ void cudaRaytraceCore(uchar4* PBOpos, camera* renderCam, int frame, int timestep
 	cam.brgb = renderCam->brgb;
 	cam.xyzc = renderCam->xyzc;
 	cam.resolution = renderCam->resolution;
-	cam.position = renderCam->positions[frame];
-	cam.view = renderCam->views[frame];
-	cam.up = renderCam->ups[frame];
+	cam.position = renderCam->position;
+	cam.view = renderCam->view;
+	cam.up = renderCam->up;
 	cam.fov = renderCam->fov;
+
+	// kernel call to populate voxel densities
+	dim3 voxelThreadsPerBlock(tileSize, tileSize, tileSize);
+	dim3 voxelFullBlocksPerGrid((int)ceil(float(volumes[0].xyzc.x)/float(tileSize)), 
+								(int)ceil(float(volumes[0].xyzc.y)/float(tileSize)), 
+								(int)ceil(float(volumes[0].xyzc.z)/float(tileSize)));
+	voxelizeVolumeWithNoise<<<voxelFullBlocksPerGrid, voxelThreadsPerBlock>>>(cudavolumes, cudaperlin);
 	
 	//kernel launches
 	raytraceRay<<<fullBlocksPerGrid, threadsPerBlock>>>(renderCam->resolution, (float)timestep, cam, cudaimage, cudalights, numberOfLights, cudamaterials, 
-		cudavolumes, numberOfVolumes, renderCam->iterations);
+		cudavolumes, numberOfVolumes, renderCam->iterations, cudaperlin);
   
 	sendImageToPBO<<<fullBlocksPerGrid, threadsPerBlock>>>(PBOpos, renderCam->resolution, cudaimage);
   
