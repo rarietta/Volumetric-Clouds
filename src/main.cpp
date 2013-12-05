@@ -104,7 +104,7 @@ void runCuda(){
 	cudaGLMapBufferObject((void**)&dptr, pbo);
   
 	// create perlin instance
-	Perlin* perlin = new Perlin(12, 8, .4, 9);
+	Perlin* perlin = new Perlin(12, 4.0, 16.0, 1234);
 
 	//pack geom and material arrays
 	geom* geoms = new geom[renderScene->objects.size()];

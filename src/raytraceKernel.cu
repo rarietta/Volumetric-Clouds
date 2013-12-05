@@ -128,14 +128,15 @@ __global__ void voxelizeVolumeWithNoise(volume* volumes, Perlin* perlin)
 	int x = (blockIdx.x * blockDim.x) + threadIdx.x;
 	int y = (blockIdx.y * blockDim.y) + threadIdx.y;
 	int z = (blockIdx.z * blockDim.z) + threadIdx.z;
-	int voxelIndex = z*V.xyzc.x*V.xyzc.y + y*V.xyzc.x + x;
+	int voxelIndex = x*V.xyzc.y*V.xyzc.z + y*V.xyzc.z + z;
 
 	glm::vec3 localPosition3D = getLocalVoxelPosition(glm::vec3((float)x, (float)y, (float)z), V);
-	float length = glm::length(localPosition3D);
-
-	float p = perlin->Get(localPosition3D)  * (1.0f - length);
-	if (voxelIndex < V.xyzc.x*V.xyzc.y*V.xyzc.z)
+	float length = glm::distance(localPosition3D, glm::vec3(0.0f));
+	
+	if ((length < 0.5f) && (voxelIndex < V.xyzc.x*V.xyzc.y*V.xyzc.z)) {
+		float p = perlin->Get(localPosition3D)  * (0.5f - length);
 		V.densities[voxelIndex] = p;
+	}
 }
 
 //TODO: IMPLEMENT THIS FUNCTION
@@ -150,45 +151,51 @@ __global__ void raytraceRay(glm::vec2 resolution, float time, cameraData cam, gl
 
 	// Get initial ray from camera through this position
 	ray currentRay = raycastFromCameraKernel(resolution, time, x, y, cam.position, cam.view, cam.up, cam.fov);
-		
-	ray reflectionRay;
-	int currentDepth = 0;
-	bool reflect = false;
-	glm::vec3 currentSpecCoeff(1.0f, 1.0f, 1.0f);
   
 	// Return values for the intersection test
 	glm::vec3 intersection_point;
-	glm::vec3 intersection_normal;
-	material  intersection_mtl;
 
+	// constant attenuation for transmission
 	float k = 0.2f;
+
+	// initialize color along ray to black
 	glm::vec3 newColor = glm::vec3(0.0f);
 	
-	glm::vec3 CF;
+	// initialize transmission of pixel to 1.0
 	float T = 1.0;
-	float Q = 1.0;
-
+	
 	if (volumeIntersectionTest(volumes[0], currentRay, intersection_point) > 0.0)
 	{
+		// initial intersection point on bounding box of volume
 		glm::vec3 marchPoint = intersection_point;
+
+		// color of volumetric material 
 		glm::vec3 volCol = materials[volumes[0].materialid].color;
 
+		// index of initial intersection point in volume density grid
 		int voxelIndex = getVoxelIndex(marchPoint, volumes[0]);
+
+		// recurse through the volume and perform operations
+		// while still inside (i.e. point has valid voxel index)
 		while (voxelIndex >= 0) {
 
+			// density of voxel at point
 			float p = volumes[0].densities[voxelIndex];
 			
-			/////////////////
-			//newColor = glm::vec3(p);
-			//break;
-			/////////////////
-
+			// transmission value at point evaluated using given function
 			float deltaT = exp(-k*volumes[0].step*p);
-				
+			
+			// accumulate transmission along ray
+			// and break if below threshold
+			T *= deltaT;
+			if (T < 0.01) break;
+
+			/*// calculate lighting
 			for (int i = 0; i < numberOfLights; i++)
 			{
+				float Q = 1.0;
 				light L = lights[i];
-				glm::vec3 F = L.color;
+				glm::vec3 CF = volCol * L.color;
 				glm::vec3 lightPoint = marchPoint; 
 				glm::vec3 lightDir = glm::normalize(L.position - marchPoint);
 				
@@ -199,73 +206,31 @@ __global__ void raytraceRay(glm::vec2 resolution, float time, cameraData cam, gl
 					float deltaQ = exp(-k*volumes[0].step*pLight);
 					Q *= deltaQ;
 
-					CF = volCol * F;
-
 					lightPoint += lightDir * volumes[0].step;
 					lightVoxelIndex = getVoxelIndex(lightPoint, volumes[0]);
 				}
-			}
+				newColor += (1.0f - deltaT)/k * (CF * T * Q);
+			}*/
 
-			T *= deltaT;
-			newColor += (1.0f - deltaT)/k * (CF * T * Q);
-			if (T < 0.01) break;
+			// adjust final color value using accumulated 
+			// transmission and volumetric material color
+			newColor += (1.0f - deltaT) / k * T * volCol;
 
+			// increment marching point along ray by step size
 			marchPoint += volumes[0].step * glm::normalize(currentRay.direction);
+
+			// get new voxel index for next loop
 			voxelIndex = getVoxelIndex(marchPoint, volumes[0]);
 		}
 	} 
-
+	// blend with background color according to transmission
 	newColor = glm::mix(newColor, cam.brgb, T);
 
-	/*
-	do {
-		// Find the closest geometry intersection along the ray
-		float t;
-		float min_t = -1.0;
-		for (int i = 0; i < numberOfGeoms; i++) {
-			staticGeom geom = geoms[i];
-			t = geomIntersectionTest(geom, currentRay, intersection_point, intersection_normal);
-			if ((t > 0.0) && (t < min_t || min_t < 0.0)) {
-				min_t = t;
-				intersection_mtl = materials[geom.materialid];
-			}
-		}
-		
-		// find reflected ray if one exists
-		if (intersection_mtl.hasReflective) {
-			reflect = true;
-			glm::vec3 rd = calculateReflectionDirection(intersection_normal, currentRay.direction);
-			glm::vec3 ro = glm::vec3(intersection_point);
-			reflectionRay.direction = rd; reflectionRay.origin = ro;
-		}
-		else { reflect = false; }
-		
-		// Find and clamp diffuse contribution at point
-		glm::vec3 phong = computePhongTotal(currentRay, intersection_point, intersection_normal, intersection_mtl, 
-											lights, numberOfLights, geoms, numberOfGeoms, materials, (float)time);
-		if (phong.x > 1.0f) { phong.x = 1.0f; } else if (phong.x < 0.0f) { phong.x = 0.0f; }
-		if (phong.y > 1.0f) { phong.y = 1.0f; } else if (phong.y < 0.0f) { phong.y = 0.0f; }
-		if (phong.z > 1.0f) { phong.z = 1.0f; } else if (phong.z < 0.0f) { phong.z = 0.0f; }
-		newColor += (currentSpecCoeff * phong);
-
-		currentDepth++;
-		currentRay.origin = reflectionRay.origin;
-		currentRay.direction = reflectionRay.direction;
-		currentSpecCoeff *= intersection_mtl.specularColor;
-	}
-	while (reflect && (currentDepth < traceDepth));
-	*/
-
-	//if (newColor.x > 1.0f) { newColor.x = 1.0f; } else if (newColor.x < 0.0f) { newColor.x = 0.0f; }
-	//if (newColor.y > 1.0f) { newColor.y = 1.0f; } else if (newColor.y < 0.0f) { newColor.y = 0.0f; }
-	//if (newColor.z > 1.0f) { newColor.z = 1.0f; } else if (newColor.z < 0.0f) { newColor.z = 0.0f; }
-	//if((x<=resolution.x && y<=resolution.y))
-	//{
-		colors[index] += newColor;
-	//}
+	// store color in final image
+	colors[index] += newColor;
 }
 
-//TODO: FINISH THIS FUNCTION
+
 // Wrapper for the __global__ call that sets up the kernel calls and does a ton of memory management
 void cudaRaytraceCore(uchar4* PBOpos, camera* renderCam, int timestep, material* materials, int numberOfMaterials, 
 					  volume* volumes, int numberOfVolumes, light* lights, int numberOfLights, Perlin* perlin)
@@ -292,7 +257,7 @@ void cudaRaytraceCore(uchar4* PBOpos, camera* renderCam, int timestep, material*
 		newVolume.materialid       = volumes[i].materialid;
 		newVolume.delt             = volumes[i].delt;
 		newVolume.step             = volumes[i].step;
-		newVolume.xyzc             = volumes[i].xyzc;
+		newVolume.xyzc             = glm::vec3(volumes[0].xyzc.x, volumes[0].xyzc.y, volumes[0].xyzc.z);
 		newVolume.translation      = volumes[i].translation;
 		newVolume.rotation         = volumes[i].rotation;
 		newVolume.scale            = volumes[i].scale;

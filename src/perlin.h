@@ -112,9 +112,9 @@ __host__ __device__ inline float Perlin::noise3(glm::vec3 vec) {
 
 __host__ __device__ inline float Perlin::perlin_noise_3D(glm::vec3 vec)
 {	
-	int   terms  = 12;//mOctaves;
-	float freq   = 3.0f;//mFrequency;
-	float amp    = 8.0f;//mAmplitude;
+	int   terms  = mOctaves;
+	float freq   = mFrequency;
+	float amp    = mAmplitude;
 	float result = 0.0f;
 
 	glm::vec3 v = vec;
@@ -137,7 +137,7 @@ __host__ __device__ inline Perlin::Perlin(int octaves,float freq,float amp,int s
 	mOctaves	= octaves;
 	mFrequency  = freq;
 	mAmplitude  = amp;
-	mSeed		= 1234;//seed;
+	mSeed		= seed;
 	mStart		= true;
 
 	// init
