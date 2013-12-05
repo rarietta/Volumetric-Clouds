@@ -64,7 +64,7 @@ __host__ __device__ inline float Perlin::Get(glm::vec3(vec)) {
 __host__ __device__ inline float Perlin::noise3(glm::vec3 vec) {
 
 	//return 1.0;
-	glm::vec3 q;
+	glm::vec3 q(0);
 	int bx0, bx1, by0, by1, bz0, bz1, b00, b10, b01, b11;
 	float rx0, rx1, ry0, ry1, rz0, rz1, sy, sz, a, b, c, d, t, u, v;
 	int i, j;

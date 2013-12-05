@@ -134,8 +134,8 @@ __global__ void voxelizeVolumeWithNoise(volume* volumes, Perlin* perlin)
 	float length = glm::distance(localPosition3D, glm::vec3(0.0f));
 	
 	if ((length < 0.5f) && (voxelIndex < V.xyzc.x*V.xyzc.y*V.xyzc.z)) {
-		float p = perlin->Get(localPosition3D)  * (0.5f - length);
-		V.densities[voxelIndex] = p;
+		float p = (perlin->Get(localPosition3D + glm::vec3(0.5f)) + (1.0 - (length / 0.5f))) * (0.5f - length);
+		V.densities[voxelIndex] = max(p, 0.0f);
 	}
 }
 
@@ -188,34 +188,54 @@ __global__ void raytraceRay(glm::vec2 resolution, float time, cameraData cam, gl
 			// accumulate transmission along ray
 			// and break if below threshold
 			T *= deltaT;
-			if (T < 0.01) break;
+			if (T < 0.05) break;
 
-			/*// calculate lighting
+			// calculate lighting
 			for (int i = 0; i < numberOfLights; i++)
 			{
+				// initialize transmission along
+				// light ray to zero
 				float Q = 1.0;
+
+				// ith scene light
 				light L = lights[i];
+
+				// material color scaled by light intensity
 				glm::vec3 CF = volCol * L.color;
-				glm::vec3 lightPoint = marchPoint; 
+
+				// first sampling point along light ray is
+				// march point
+				glm::vec3 lightPoint = marchPoint;
+
+				// light ray
 				glm::vec3 lightDir = glm::normalize(L.position - marchPoint);
 				
+				// get index of voxel for point along light ray
 				int lightVoxelIndex = getVoxelIndex(lightPoint, volumes[0]);
+				
+				// recurse along light ray and perform operations
+				// while still inside (i.e. point has valid voxel index
 				while (lightVoxelIndex >= 0) 
 				{
+					// density at point along light ray
 					float pLight = volumes[0].densities[lightVoxelIndex];
+					
+					// light transmission value at point along light ray
 					float deltaQ = exp(-k*volumes[0].step*pLight);
-					Q *= deltaQ;
 
+					// accumulate opacity of point
+					Q *= deltaQ;
+					if (Q < 0.05) break;
+
+					// step to next sample point along light ray
 					lightPoint += lightDir * volumes[0].step;
+
+					// get next voxel index
 					lightVoxelIndex = getVoxelIndex(lightPoint, volumes[0]);
 				}
+				// accumulate color value
 				newColor += (1.0f - deltaT)/k * (CF * T * Q);
-			}*/
-
-			// adjust final color value using accumulated 
-			// transmission and volumetric material color
-			newColor += (1.0f - deltaT) / k * T * volCol;
-
+			}
 			// increment marching point along ray by step size
 			marchPoint += volumes[0].step * glm::normalize(currentRay.direction);
 
