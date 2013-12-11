@@ -41,6 +41,13 @@ __host__ __device__ glm::vec3 generateRandomNumberFromThread(glm::vec2 resolutio
   return glm::vec3((float) u01(rng), (float) u01(rng), (float) u01(rng));
 }
 
+__host__ __device__ float generateRandomFloatFromSeed(int index, float seed){
+  thrust::default_random_engine rng(hash(index*seed));
+  thrust::uniform_real_distribution<float> u01(0,1);
+
+  return (float)u01(rng);
+}
+
 //TODO: IMPLEMENT THIS FUNCTION
 //Function that does the initial raycast from the camera
 __host__ __device__ ray raycastFromCameraKernel(glm::vec2 resolution, float time, int x, int y, glm::vec3 eye, glm::vec3 view, glm::vec3 up, glm::vec2 fov){
@@ -87,62 +94,73 @@ __global__ void clearImage(glm::vec2 resolution, glm::vec3* image){
 
 //Kernel that writes the image to the OpenGL PBO directly.
 __global__ void sendImageToPBO(uchar4* PBOpos, glm::vec2 resolution, glm::vec3* image){
+
+	int x = (blockIdx.x * blockDim.x) + threadIdx.x;
+	int y = (blockIdx.y * blockDim.y) + threadIdx.y;
+	int index = x + (y * resolution.x);
   
-  int x = (blockIdx.x * blockDim.x) + threadIdx.x;
-  int y = (blockIdx.y * blockDim.y) + threadIdx.y;
-  int index = x + (y * resolution.x);
-  
-  if(x<=resolution.x && y<=resolution.y){
+	if(x<=resolution.x && y<=resolution.y){
 
-      glm::vec3 color;
-      color.x = image[index].x*255.0;
-      color.y = image[index].y*255.0;
-      color.z = image[index].z*255.0;
+		glm::vec3 color;
+		color.x = image[index].x*255.0;
+		color.y = image[index].y*255.0;
+		color.z = image[index].z*255.0;
 
-      if(color.x>255){
-        color.x = 255;
-      }
-
-      if(color.y>255){
-        color.y = 255;
-      }
-
-      if(color.z>255){
-        color.z = 255;
-      }
+		if(color.x>255)
+			color.x = 255;
+		else if (color.x<0)
+			color.x = 0;
+		
+		if(color.y>255)
+			color.y = 255;
+		else if (color.y<0)
+			color.y = 0;
+		
+		if(color.z>255)
+			color.z = 255;
+		else if (color.z<0)
+			color.z = 0;
       
-      // Each thread writes one pixel location in the texture (textel)
-      PBOpos[index].w = 0;
-      PBOpos[index].x = color.x;
-      PBOpos[index].y = color.y;
-      PBOpos[index].z = color.z;
-  }
+		// Each thread writes one pixel location in the texture (textel)
+		PBOpos[index].w = 1.0;
+		PBOpos[index].x = color.x;
+		PBOpos[index].y = color.y;
+		PBOpos[index].z = color.z;
+	}
 }
 
 //TODO: IMPLEMENT THIS FUNCTION
 //Core raytracer kernel
-__global__ void voxelizeVolumeWithNoise(volume* volumes, Perlin* perlin)
+__global__ void voxelizeVolumeWithNoise(int index, volume* volumes, Perlin* perlin1, Perlin* perlin2, int timestep)
 {
-	volume V = volumes[0];
+	// identify current volume
+	volume V = volumes[index];
 
+	// get index of voxel within volume
 	int x = (blockIdx.x * blockDim.x) + threadIdx.x;
 	int y = (blockIdx.y * blockDim.y) + threadIdx.y;
 	int z = (blockIdx.z * blockDim.z) + threadIdx.z;
 	int voxelIndex = x*V.xyzc.y*V.xyzc.z + y*V.xyzc.z + z;
-
-	glm::vec3 localPosition3D = getLocalVoxelPosition(glm::vec3((float)x, (float)y, (float)z), V);
-	float length = glm::distance(localPosition3D, glm::vec3(0.0f));
 	
-	if ((length < 0.5f) && (voxelIndex < V.xyzc.x*V.xyzc.y*V.xyzc.z)) {
-		float p = (perlin->Get(localPosition3D + glm::vec3(0.5f)) + (1.0 - (length / 0.5f))) * (0.5f - length);
-		V.densities[voxelIndex] = max(p, 0.0f);
+	// find distance from voxel to center of volume
+	glm::vec3 localPosition3D = getLocalVoxelPosition(glm::vec3((float)x, (float)y, (float)z), V);
+	float length = glm::distance(localPosition3D, glm::vec3(0.0f, 0.0f, 0.0f));
+	
+	// get random number
+	//float modifier = generateRandomFloatFromSeed(voxelIndex, perlin1->mSeed) * 0.5 - 0.25;
+	float modifier = 0.0f;
+
+	if ((length < 0.5f + modifier) && (voxelIndex < V.xyzc.x*V.xyzc.y*V.xyzc.z) && (localPosition3D.y < 0.2)) {
+		float p1 = (perlin1->Get(multiplyMV(V.transform, glm::vec4(localPosition3D, 1.0))) + (1.0 - (length / (0.5f + modifier)))) * ((0.5f + modifier) - length);
+		float p2 = (perlin2->Get(multiplyMV(V.transform, glm::vec4(localPosition3D, 1.0))) + (1.0 - (length / (0.5f + modifier)))) * ((0.5f + modifier) - length);
+		V.voxels[voxelIndex].density = max(glm::mix(p1, p2, (float)(timestep%20) / 20.0f), 0.0f);
 	}
 }
 
 //TODO: IMPLEMENT THIS FUNCTION
 //Core raytracer kernel
 __global__ void raytraceRay(glm::vec2 resolution, float time, cameraData cam, glm::vec3* colors, light* lights, int numberOfLights,
-							material* materials, volume* volumes, int numberOfVolumes, float iterations, Perlin* perlin)
+							material* materials, volume* volumes, int numberOfVolumes, float iterations)
 {
 	// Find index of pixel and create empty color vector
 	int x = (blockIdx.x * blockDim.x) + threadIdx.x;
@@ -159,107 +177,112 @@ __global__ void raytraceRay(glm::vec2 resolution, float time, cameraData cam, gl
 	float k = 0.2f;
 
 	// initialize color along ray to black
-	glm::vec3 newColor = glm::vec3(0.0f);
+	colors[index] = cam.brgb;
 	
-	// initialize transmission of pixel to 1.0
-	float T = 1.0;
-	
-	if (volumeIntersectionTest(volumes[0], currentRay, intersection_point) > 0.0)
+	for (int v = 0; v < numberOfVolumes; v++)
 	{
-		// initial intersection point on bounding box of volume
-		glm::vec3 marchPoint = intersection_point;
+		// initialize transmission of pixel to 1.0
+		float T = 1.0;
+	
+		glm::vec3 newColor = glm::vec3(0.0f);
+		volume V = volumes[v];
 
-		// color of volumetric material 
-		glm::vec3 volCol = materials[volumes[0].materialid].color;
+		if (volumeIntersectionTest(V, currentRay, intersection_point) > 0.0)
+		{
+			// initial intersection point on bounding box of volume
+			glm::vec3 marchPoint = intersection_point;
 
-		// index of initial intersection point in volume density grid
-		int voxelIndex = getVoxelIndex(marchPoint, volumes[0]);
+			// color of volumetric material 
+			glm::vec3 volCol = materials[V.materialid].color;
 
-		// recurse through the volume and perform operations
-		// while still inside (i.e. point has valid voxel index)
-		while (voxelIndex >= 0) {
+			// index of initial intersection point in volume density grid
+			int voxelIndex = getVoxelIndex(marchPoint, V);
 
-			// density of voxel at point
-			float p = volumes[0].densities[voxelIndex];
+			// recurse through the volume and perform operations
+			// while still inside (i.e. point has valid voxel index)
+			while (voxelIndex >= 0) {
+
+				// density of voxel at point
+				float p = V.voxels[voxelIndex].density;
 			
-			// transmission value at point evaluated using given function
-			float deltaT = exp(-k*volumes[0].step*p);
+				// transmission value at point evaluated using given function
+				float deltaT = exp(-k*V.step*p);
 			
-			// accumulate transmission along ray
-			// and break if below threshold
-			T *= deltaT;
-			if (T < 0.05) break;
+				// accumulate transmission along ray
+				// and break if below threshold
+				T *= min(deltaT, 1.0f);
+				if (T < 0.1) break;
 
-			// calculate lighting
-			for (int i = 0; i < numberOfLights; i++)
-			{
-				// initialize transmission along
-				// light ray to zero
-				float Q = 1.0;
+				// calculate lighting
+				if (deltaT < 1.0f) {
+					for (int i = 0; i < numberOfLights; i++)
+					{
+						// initialize transmission along
+						// light ray to zero
+						float Q = 1.0;
 
-				// ith scene light
-				light L = lights[i];
+						// ith scene light
+						light L = lights[i];
 
-				// material color scaled by light intensity
-				glm::vec3 CF = volCol * L.color;
+						// material color scaled by light intensity
+						glm::vec3 CF = volCol * L.color;
 
-				// first sampling point along light ray is
-				// march point
-				glm::vec3 lightPoint = marchPoint;
+						// first sampling point along light ray is
+						// march point
+						glm::vec3 lightPoint = marchPoint;
 
-				// light ray
-				glm::vec3 lightDir = glm::normalize(L.position - marchPoint);
+						// light ray
+						glm::vec3 lightDir = glm::normalize(L.position - marchPoint);
 				
-				// get index of voxel for point along light ray
-				int lightVoxelIndex = getVoxelIndex(lightPoint, volumes[0]);
+						// get index of voxel for point along light ray
+						int lightVoxelIndex = getVoxelIndex(lightPoint, V);
 				
-				// recurse along light ray and perform operations
-				// while still inside (i.e. point has valid voxel index
-				while (lightVoxelIndex >= 0) 
-				{
-					// density at point along light ray
-					float pLight = volumes[0].densities[lightVoxelIndex];
+						// recurse along light ray and perform operations
+						// while still inside (i.e. point has valid voxel index
+						while (lightVoxelIndex >= 0) 
+						{
+							// density at point along light ray
+							float pLight = V.voxels[lightVoxelIndex].density;
 					
-					// light transmission value at point along light ray
-					float deltaQ = exp(-k*volumes[0].step*pLight);
+							// light transmission value at point along light ray
+							float deltaQ = exp(-k*V.step*pLight);
 
-					// accumulate opacity of point
-					Q *= deltaQ;
-					if (Q < 0.05) break;
+							// accumulate opacity of point
+							Q *= deltaQ;
+							if (Q < 0.05) break;
 
-					// step to next sample point along light ray
-					lightPoint += lightDir * volumes[0].step;
+							// step to next sample point along light ray
+							lightPoint += lightDir * V.step;
 
-					// get next voxel index
-					lightVoxelIndex = getVoxelIndex(lightPoint, volumes[0]);
+							// get next voxel index
+							lightVoxelIndex = getVoxelIndex(lightPoint, V);
+						}
+						// accumulate color value
+						newColor += (1.0f - deltaT)/k * (CF * T * Q);
+						glm::clamp(newColor, 0.0f, 1.0f);
+					}
 				}
-				// accumulate color value
-				newColor += (1.0f - deltaT)/k * (CF * T * Q);
+				// increment marching point along ray by step size
+				marchPoint += V.step * glm::normalize(currentRay.direction);
+
+				// get new voxel index for next loop
+				voxelIndex = getVoxelIndex(marchPoint, V);
 			}
-			// increment marching point along ray by step size
-			marchPoint += volumes[0].step * glm::normalize(currentRay.direction);
-
-			// get new voxel index for next loop
-			voxelIndex = getVoxelIndex(marchPoint, volumes[0]);
-		}
-	} 
-	// blend with background color according to transmission
-	newColor = glm::mix(newColor, cam.brgb, T);
-
-	// store color in final image
-	colors[index] += newColor;
+		} 
+		// blend with background color according to transmission
+		glm::clamp(T, 0.0f, 1.0f);
+		colors[index] = glm::mix(newColor, colors[index], T);
+		colors[index] = glm::clamp(colors[index], 0.0f, 1.0f);
+	}
 }
 
 
 // Wrapper for the __global__ call that sets up the kernel calls and does a ton of memory management
 void cudaRaytraceCore(uchar4* PBOpos, camera* renderCam, int timestep, material* materials, int numberOfMaterials, 
-					  volume* volumes, int numberOfVolumes, light* lights, int numberOfLights, Perlin* perlin)
+					  volume* volumes, int numberOfVolumes, light* lights, int numberOfLights, Perlin* perlin1, Perlin* perlin2)
 {
-	//determines how many bounces the raytracer traces
-	int traceDepth = 3;
-
 	// set up crucial magic
-	int tileSize = 8;
+	int tileSize = 10;
 	dim3 threadsPerBlock(tileSize, tileSize);
 	dim3 fullBlocksPerGrid((int)ceil(float(renderCam->resolution.x)/float(tileSize)), (int)ceil(float(renderCam->resolution.y)/float(tileSize)));
 
@@ -269,37 +292,42 @@ void cudaRaytraceCore(uchar4* PBOpos, camera* renderCam, int timestep, material*
 	cudaMemcpy( cudaimage, renderCam->image, (int)renderCam->resolution.x*(int)renderCam->resolution.y*sizeof(glm::vec3), cudaMemcpyHostToDevice);
   
 	//package volumes and send to GPU
-	int totalVoxels = 0;
 	volume* volumeList = new volume[numberOfVolumes];
 	for (int i = 0; i < numberOfVolumes; i++) {
 		volume newVolume;
+		newVolume.isSet			   = volumes[i].isSet;
 		newVolume.volumeid         = volumes[i].volumeid;
 		newVolume.materialid       = volumes[i].materialid;
 		newVolume.delt             = volumes[i].delt;
 		newVolume.step             = volumes[i].step;
-		newVolume.xyzc             = glm::vec3(volumes[0].xyzc.x, volumes[0].xyzc.y, volumes[0].xyzc.z);
+		newVolume.xyzc             = volumes[i].xyzc;
 		newVolume.translation      = volumes[i].translation;
 		newVolume.rotation         = volumes[i].rotation;
 		newVolume.scale            = volumes[i].scale;
 		newVolume.transform        = volumes[i].transform;
 		newVolume.inverseTransform = volumes[i].inverseTransform;
 
-		float* cudaVolumeDensities = NULL;
+		voxel* cudaVolumeVoxels = NULL;
 		int numVoxels = int(newVolume.xyzc.x*newVolume.xyzc.y*newVolume.xyzc.z);
-		cudaMalloc((void**)&cudaVolumeDensities, numVoxels*sizeof(float));
+		cudaMalloc((void**)&cudaVolumeVoxels, numVoxels*sizeof(voxel));
 		
-		float* densities = new float[numVoxels];
-		for (int v = 0; v < numVoxels; v++)
-			densities[v] = 0.0f;
-		cudaMemcpy(cudaVolumeDensities, densities, numVoxels*sizeof(float), cudaMemcpyHostToDevice);
-		newVolume.densities = cudaVolumeDensities;
+		voxel* voxels = new voxel[numVoxels];
+		for (int v = 0; v < numVoxels; v++) {
+			voxels[v].density = volumes[i].voxels[v].density;
+			//if (v % 1000 == 0) printf("iteration %d, voxel %d: %f\n", timestep, v, voxels[v].density);
+		}
+		cudaMemcpy(cudaVolumeVoxels, voxels, numVoxels*sizeof(voxel), cudaMemcpyHostToDevice);
+		newVolume.voxels = cudaVolumeVoxels;
 
 		volumeList[i] = newVolume;
+
+		delete voxels;
 	}
 	volume* cudavolumes = NULL;
 	cudaMalloc((void**)&cudavolumes, numberOfVolumes*sizeof(volume));
 	cudaMemcpy(cudavolumes, volumeList, numberOfVolumes*sizeof(volume), cudaMemcpyHostToDevice);
   
+
 	//package materials and send to GPU
 	material* materialList = new material[numberOfMaterials];
 	for (int i=0; i<numberOfMaterials; i++){
@@ -311,6 +339,7 @@ void cudaRaytraceCore(uchar4* PBOpos, camera* renderCam, int timestep, material*
 	cudaMalloc((void**)&cudamaterials, numberOfMaterials*sizeof(material));
 	cudaMemcpy(cudamaterials, materialList, numberOfMaterials*sizeof(material), cudaMemcpyHostToDevice);
   
+
 	// package lights and send to GPU
 	light* lightList = new light[numberOfLights];
 	for(int i=0; i<numberOfLights; i++){
@@ -323,11 +352,16 @@ void cudaRaytraceCore(uchar4* PBOpos, camera* renderCam, int timestep, material*
 	cudaMalloc((void**)&cudalights, numberOfLights*sizeof(light));
 	cudaMemcpy(cudalights, lightList, numberOfLights*sizeof(light), cudaMemcpyHostToDevice);
   
+
 	//package perlin
-	Perlin* cudaperlin = NULL;
-	cudaMalloc((void**)&cudaperlin, sizeof(Perlin));
-	cudaMemcpy(cudaperlin, perlin, sizeof(Perlin), cudaMemcpyHostToDevice);
+	Perlin* cudaperlin1 = NULL;
+	cudaMalloc((void**)&cudaperlin1, sizeof(Perlin));
+	cudaMemcpy(cudaperlin1, perlin1, sizeof(Perlin), cudaMemcpyHostToDevice);
+	Perlin* cudaperlin2 = NULL;
+	cudaMalloc((void**)&cudaperlin2, sizeof(Perlin));
+	cudaMemcpy(cudaperlin2, perlin2, sizeof(Perlin), cudaMemcpyHostToDevice);
 	
+
 	//package camera
 	cameraData cam;
 	cam.delt = renderCam->delt;
@@ -340,30 +374,56 @@ void cudaRaytraceCore(uchar4* PBOpos, camera* renderCam, int timestep, material*
 	cam.up = renderCam->up;
 	cam.fov = renderCam->fov;
 
+
 	// kernel call to populate voxel densities
-	dim3 voxelThreadsPerBlock(tileSize, tileSize, tileSize);
-	dim3 voxelFullBlocksPerGrid((int)ceil(float(volumes[0].xyzc.x)/float(tileSize)), 
-								(int)ceil(float(volumes[0].xyzc.y)/float(tileSize)), 
-								(int)ceil(float(volumes[0].xyzc.z)/float(tileSize)));
-	voxelizeVolumeWithNoise<<<voxelFullBlocksPerGrid, voxelThreadsPerBlock>>>(cudavolumes, cudaperlin);
+	for (int i = 0; i < numberOfVolumes; i++) {
+		//if (!volumes[i].isSet) {
+			dim3 voxelThreadsPerBlock(tileSize, tileSize, tileSize);
+			dim3 voxelFullBlocksPerGrid((int)ceil(float(volumes[i].xyzc.x)/float(tileSize)), 
+										(int)ceil(float(volumes[i].xyzc.y)/float(tileSize)), 
+										(int)ceil(float(volumes[i].xyzc.z)/float(tileSize)));
+			voxelizeVolumeWithNoise<<<voxelFullBlocksPerGrid, voxelThreadsPerBlock>>>(i, cudavolumes, cudaperlin1, cudaperlin2, (float)timestep);
+		//}
+	}
 	
+
 	//kernel launches
 	raytraceRay<<<fullBlocksPerGrid, threadsPerBlock>>>(renderCam->resolution, (float)timestep, cam, cudaimage, cudalights, numberOfLights, cudamaterials, 
-		cudavolumes, numberOfVolumes, renderCam->iterations, cudaperlin);
+		cudavolumes, numberOfVolumes, renderCam->iterations);
   
 	sendImageToPBO<<<fullBlocksPerGrid, threadsPerBlock>>>(PBOpos, renderCam->resolution, cudaimage);
   
+
 	//retrieve image from GPU
-	cudaMemcpy( renderCam->image, cudaimage, (int)renderCam->resolution.x*(int)renderCam->resolution.y*sizeof(glm::vec3), cudaMemcpyDeviceToHost);
+	cudaMemcpy(renderCam->image, cudaimage, (int)renderCam->resolution.x*(int)renderCam->resolution.y*sizeof(glm::vec3), cudaMemcpyDeviceToHost);
   
+	// save state of volumes
+	volume* volumesArr = new volume[numberOfVolumes];
+	cudaMemcpy(volumesArr, cudavolumes, numberOfVolumes*sizeof(volume), cudaMemcpyDeviceToHost);
+
+	for (int i = 0; i < numberOfVolumes; i++) {
+		if (!volumes[i].isSet) {
+			int numVoxels = int(volumes[i].xyzc.x*volumes[i].xyzc.y*volumes[i].xyzc.z);
+			cudaMemcpy(volumes[i].voxels, volumesArr[i].voxels, numVoxels*sizeof(voxel), cudaMemcpyDeviceToHost);
+			volumes[i].isSet = true;
+		}
+	}
+
 	//free up stuff, or else we'll leak memory like a madman
 	delete lightList;
+	for (int i = 0; i < numberOfVolumes; i++) {
+		cudaFree( volumeList[i].voxels);
+	}
 	delete volumeList;
+	delete volumesArr;
 	delete materialList;
 	cudaFree( cudaimage );
 	cudaFree( cudalights );
 	cudaFree( cudavolumes );
 	cudaFree( cudamaterials );
+	cudaFree( cudaperlin1 );
+	cudaFree( cudaperlin2 );
+
 
 	// make certain the kernel has completed
 	cudaThreadSynchronize();

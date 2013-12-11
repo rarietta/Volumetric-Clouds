@@ -104,7 +104,8 @@ void runCuda(){
 	cudaGLMapBufferObject((void**)&dptr, pbo);
   
 	// create perlin instance
-	Perlin* perlin = new Perlin(8, 1.3, 353.0, 0);
+	Perlin* perlin1 = new Perlin(4, 0.02, 353.0, 0);
+	Perlin* perlin2 = new Perlin(4, 0.04, 153.0, 0);
 
 	//pack geom and material arrays
 	geom* geoms = new geom[renderScene->objects.size()];
@@ -126,14 +127,19 @@ void runCuda(){
 	}
     
 	// execute the kernel
-	cudaRaytraceCore(dptr, renderCam, 0, materials, renderScene->materials.size(),
-					 volumes, renderScene->volumes.size(), lights, renderScene->lights.size(), perlin);
+	cudaRaytraceCore(dptr, renderCam, iterations, materials, renderScene->materials.size(),
+					 volumes, renderScene->volumes.size(), lights, renderScene->lights.size(), perlin1, perlin2);
     
+	for(int i=0; i<renderScene->volumes.size(); i++){
+		renderScene->volumes[i] = volumes[i];
+	}
+
 	// unmap buffer object
 	cudaGLUnmapBufferObject(pbo);
 
 	// delete stuff
-	delete perlin;
+	delete perlin1;
+	delete perlin2;
 	delete geoms;
 	delete lights;
 	delete volumes;

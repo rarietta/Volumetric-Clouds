@@ -159,7 +159,7 @@ int scene::loadVolume(string volumeid){
 		string line;
         
 		// get static data
-		for(int i=0; i<4; i++){
+		for(int i=0; i<6; i++){
 			utilityCore::safeGetline(fp_in,line);
 			vector<string> tokens = utilityCore::tokenizeString(line);
 			if(strcmp(tokens[0].c_str(), "mtid")==0){
@@ -171,11 +171,16 @@ int scene::loadVolume(string volumeid){
 				newVolume.step = atof(tokens[1].c_str());
 			}else if(strcmp(tokens[0].c_str(), "xyzc")==0){
 				newVolume.xyzc = glm::vec3(atoi(tokens[1].c_str()), atoi(tokens[2].c_str()), atoi(tokens[3].c_str()));
+			}else if(strcmp(tokens[0].c_str(), "TRANSLATION")==0){
+				newVolume.translation = glm::vec3(atof(tokens[1].c_str()), atof(tokens[2].c_str()), atof(tokens[3].c_str()));
+			}else if(strcmp(tokens[0].c_str(), "ROTATION")==0){
+				newVolume.rotation = glm::vec3(atof(tokens[1].c_str()), atof(tokens[2].c_str()), atof(tokens[3].c_str()));
 			}
 		}
 		
-		newVolume.translation = glm::vec3(0.0f);
-		newVolume.rotation = glm::vec3(0.0f);
+		newVolume.isSet = false;
+		//newVolume.translation = glm::vec3(0.0f);
+		//newVolume.rotation = glm::vec3(0.0f);
 		newVolume.scale = glm::vec3(newVolume.xyzc.x*newVolume.delt, newVolume.xyzc.y*newVolume.delt, newVolume.xyzc.z*newVolume.delt);
 		glm::mat4 transform = utilityCore::buildTransformationMatrix(newVolume.translation, newVolume.rotation, newVolume.scale);
 		newVolume.transform = utilityCore::glmMat4ToCudaMat4(transform);
@@ -186,9 +191,9 @@ int scene::loadVolume(string volumeid){
 		
 		// read voxel data
 		int numVoxels = newVolume.xyzc.x * newVolume.xyzc.y * newVolume.xyzc.z;
-		newVolume.densities = new float[numVoxels];
+		newVolume.voxels = new voxel[numVoxels];
 		for (int i = 0; i < numVoxels; i++) {
-			newVolume.densities[i] = 0.0f;
+			newVolume.voxels[i].density = 0.0f;
 		}
 
 		volumes.push_back(newVolume);

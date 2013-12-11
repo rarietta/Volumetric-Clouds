@@ -18,6 +18,13 @@ struct ray {
 	glm::vec3 direction;
 };
 
+struct voxel {
+	float density;
+	float extinctionProbablity;
+	float phaseTransitionProbability;
+	char states;
+};
+
 struct geom {
 	enum GEOMTYPE type;
 	int objectid;
@@ -42,6 +49,7 @@ struct staticGeom {
 };
 
 struct volume {
+	bool isSet;
 	int volumeid;
 	int materialid;
 	float delt;
@@ -52,7 +60,7 @@ struct volume {
 	glm::vec3 scale;
 	cudaMat4 transform;
 	cudaMat4 inverseTransform;
-	float* densities;
+	voxel* voxels;
 };
 
 struct light {

@@ -22,6 +22,6 @@
 #endif
 
 void cudaRaytraceCore(uchar4* pos, camera* renderCam, int timestep, material* materials, int numberOfMaterials,
-					  volume* volumes, int numberOfVolumes, light* lights, int numberOfLights, Perlin* perlin);
+					  volume* volumes, int numberOfVolumes, light* lights, int numberOfLights, Perlin* perlin1, Perlin* perlin2);
 
 #endif
