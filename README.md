@@ -6,6 +6,18 @@ Fall 2013
 -------------------------------------------------------------------------------
 
 -------------------------------------------------------------------------------
+Update, 12/10/13:
+-------------------------------------------------------------------------------
+
+![Image](https://raw.github.com/rarietta/Volumetric_Clouds/master/documents/cloud2.png)
+
+I was able to render out much more realistic looking clouds. These clouds
+are animated, and their forms grow and expire according to a Perlin density
+function and a method suggested by Frank Kane in Game Engine Gems 2.
+
+Check out the video here: (https://raw.github.com/rarietta/Volumetric_Clouds/master/documents/565Raytracer 2013-12-11 01-59-47-303.avi)
+
+-------------------------------------------------------------------------------
 Update, 12/04/13:
 -------------------------------------------------------------------------------
 
