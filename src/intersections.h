@@ -100,9 +100,9 @@ __host__ __device__ int getVoxelIndex(glm::vec3 P, volume V){
 		(Pt.y >= (-0.5 - error)) && (Pt.y <= (0.5 + error)) && 
 		(Pt.z >= (-0.5 - error)) && (Pt.z <= (0.5 + error)))
 	{
-		int x = floor((Pt.x + 0.5f) * V.xyzc.x);
-		int y = floor((Pt.y + 0.5f) * V.xyzc.y);
-		int z = floor((Pt.z + 0.5f) * V.xyzc.z);
+		int x = floor((Pt.x + 0.5f + error) * V.xyzc.x);
+		int y = floor((Pt.y + 0.5f + error) * V.xyzc.y);
+		int z = floor((Pt.z + 0.5f + error) * V.xyzc.z);
 
 		return x*V.xyzc.y*V.xyzc.z + y*V.xyzc.z + z;
 	}
@@ -127,7 +127,7 @@ __host__ __device__ float volumeIntersectionTest(volume vol, ray r, glm::vec3& i
 	glm::vec3 faceNormals[6];
 	glm::vec3 faceCenters[6];
 	faceNormals[0] = glm::vec3(0,0,-1); faceCenters[0] = glm::vec3(0,0,-0.5);
-	faceNormals[1] = glm::vec3(0,0,-1); faceCenters[1] = glm::vec3(0,0, 0.5);
+	faceNormals[1] = glm::vec3(0,0, 1); faceCenters[1] = glm::vec3(0,0, 0.5);
 	faceNormals[2] = glm::vec3(0,-1,0); faceCenters[2] = glm::vec3(0,-0.5,0);
 	faceNormals[3] = glm::vec3(0, 1,0); faceCenters[3] = glm::vec3(0, 0.5,0);
 	faceNormals[4] = glm::vec3(-1,0,0); faceCenters[4] = glm::vec3(-0.5,0,0);
@@ -149,7 +149,7 @@ __host__ __device__ float volumeIntersectionTest(volume vol, ray r, glm::vec3& i
 			continue;
 	  
 		// if t is greater than the closest found intersection, skip it
-		if ((min_t > 0.0) && (t >= min_t))
+		if ((min_t > 0.0) && (t > min_t))
 			continue;
 	  
 		// check to see if the point found is within
@@ -190,7 +190,7 @@ __host__ __device__ float boxIntersectionTest(staticGeom box, ray r, glm::vec3& 
   glm::vec3 faceNormals[6];
   glm::vec3 faceCenters[6];
   faceNormals[0] = glm::vec3(0,0,-1); faceCenters[0] = glm::vec3(0,0,-0.5);
-  faceNormals[1] = glm::vec3(0,0,-1); faceCenters[1] = glm::vec3(0,0, 0.5);
+  faceNormals[1] = glm::vec3(0,0, 1); faceCenters[1] = glm::vec3(0,0, 0.5);
   faceNormals[2] = glm::vec3(0,-1,0); faceCenters[2] = glm::vec3(0,-0.5,0);
   faceNormals[3] = glm::vec3(0, 1,0); faceCenters[3] = glm::vec3(0, 0.5,0);
   faceNormals[4] = glm::vec3(-1,0,0); faceCenters[4] = glm::vec3(-0.5,0,0);

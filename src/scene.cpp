@@ -159,28 +159,34 @@ int scene::loadVolume(string volumeid){
 		string line;
         
 		// get static data
-		for(int i=0; i<6; i++){
+		for(int i=0; i<7; i++){
 			utilityCore::safeGetline(fp_in,line);
 			vector<string> tokens = utilityCore::tokenizeString(line);
 			if(strcmp(tokens[0].c_str(), "mtid")==0){
 				newVolume.materialid = atoi(tokens[1].c_str());
-				cout << "Connecting Object " << volumeid << " to Material " << newVolume.materialid << "..." << endl;
+				cout << "Connecting Volume " << volumeid << " to Material " << newVolume.materialid << "..." << endl;
 			}else if(strcmp(tokens[0].c_str(), "delt")==0){
+				cout << "Connecting Volume to delt" << endl;
 				newVolume.delt = atof(tokens[1].c_str());
 			}else if(strcmp(tokens[0].c_str(), "step")==0){
+				cout << "Connecting Volume to step" << endl;
 				newVolume.step = atof(tokens[1].c_str());
 			}else if(strcmp(tokens[0].c_str(), "xyzc")==0){
+				cout << "Connecting Volume to xyzc" << endl;
 				newVolume.xyzc = glm::vec3(atoi(tokens[1].c_str()), atoi(tokens[2].c_str()), atoi(tokens[3].c_str()));
 			}else if(strcmp(tokens[0].c_str(), "TRANSLATION")==0){
+				cout << "Connecting Volume to trans" << endl;
 				newVolume.translation = glm::vec3(atof(tokens[1].c_str()), atof(tokens[2].c_str()), atof(tokens[3].c_str()));
 			}else if(strcmp(tokens[0].c_str(), "ROTATION")==0){
+				cout << "Connecting Volume to rot" << endl;
 				newVolume.rotation = glm::vec3(atof(tokens[1].c_str()), atof(tokens[2].c_str()), atof(tokens[3].c_str()));
+			}else if(strcmp(tokens[0].c_str(), "VELOCITY")==0){
+				cout << "Connecting Volume to vel" << endl;
+				newVolume.velocity = atof(tokens[1].c_str());
 			}
 		}
 		
 		newVolume.isSet = false;
-		//newVolume.translation = glm::vec3(0.0f);
-		//newVolume.rotation = glm::vec3(0.0f);
 		newVolume.scale = glm::vec3(newVolume.xyzc.x*newVolume.delt, newVolume.xyzc.y*newVolume.delt, newVolume.xyzc.z*newVolume.delt);
 		glm::mat4 transform = utilityCore::buildTransformationMatrix(newVolume.translation, newVolume.rotation, newVolume.scale);
 		newVolume.transform = utilityCore::glmMat4ToCudaMat4(transform);
@@ -194,6 +200,10 @@ int scene::loadVolume(string volumeid){
 		newVolume.voxels = new voxel[numVoxels];
 		for (int i = 0; i < numVoxels; i++) {
 			newVolume.voxels[i].density = 0.0f;
+			newVolume.voxels[i].vaporProbability = 0.0f;
+			newVolume.voxels[i].extinctionProbability = 1.0f;
+			newVolume.voxels[i].phaseTransitionProbability = 0.0f;
+			newVolume.voxels[i].states = 0x0;
 		}
 
 		volumes.push_back(newVolume);

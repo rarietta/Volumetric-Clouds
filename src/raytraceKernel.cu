@@ -133,6 +133,54 @@ __global__ void sendImageToPBO(uchar4* PBOpos, glm::vec2 resolution, glm::vec3* 
 //Core raytracer kernel
 __global__ void voxelizeVolumeWithNoise(int index, volume* volumes, Perlin* perlin1, Perlin* perlin2, int timestep)
 {
+	// get current volume
+	volume V = volumes[index];
+
+	// get current voxel within volume
+	int x = (blockIdx.x * blockDim.x) + threadIdx.x;		// x-index
+	int y = (blockIdx.y * blockDim.y) + threadIdx.y;		// y-index
+	int z = (blockIdx.z * blockDim.z) + threadIdx.z;		// z-index
+	int voxelIndex = x*V.xyzc.y*V.xyzc.z + y*V.xyzc.z + z;	// overall voxel index
+	voxel vox = V.voxels[voxelIndex];
+
+	// find distance from voxel to center of volume
+	glm::vec3 localPosition3D = getLocalVoxelPosition(glm::vec3((float)x, (float)y, (float)z), V);
+	float length = glm::distance(localPosition3D, glm::vec3(0.0f, 0.0f, 0.0f));
+
+	// assert voxel is within hemispheric ellipsoid
+	if ( ! ((length < 0.5f) && (voxelIndex < V.xyzc.x*V.xyzc.y*V.xyzc.z) && (localPosition3D.y < 0.2)))
+		return;
+
+	// find animated noise by blending between two perlin noise functions based on frame
+	float p1 = (perlin1->Get(multiplyMV(V.transform, glm::vec4(localPosition3D, 0.0))) + (1.0 - (length / 0.5f))) * (0.5f - length);
+	float p2 = (perlin2->Get(multiplyMV(V.transform, glm::vec4(localPosition3D, 0.0))) + (1.0 - (length / 0.5f))) * (0.5f - length);
+	float pf = max(glm::mix(p1, p2, 0.7f), 0.0f);
+
+	// set voxel properties
+	vox.density					   = pf;							// density of volume for transmittance
+	vox.extinctionProbability	   = max((1.0-pf), 0.0f) * 0.9f;	// how likely is this cloud voxel to disappear
+	vox.vaporProbability		   = pf * 0.003f;					// how likely is this cloud voxel to randomly accumulate vapor
+	vox.phaseTransitionProbability = pf * 0.00003;					// how likely is this cloud voxel to change phase to liquid
+		
+	// if this is the first time, initialize simulation state
+	if (!V.isSet) {
+		if ((localPosition3D.y > 0.15f) && (pf > 0.01f)) { vox.states |= 0x1; }
+		else											 { vox.states &= 0x0; }
+	}
+
+	// save out voxel
+	V.voxels[voxelIndex] = vox;
+}
+
+
+//Cloud growth and dynamics (implementation adapted from Game Engine Gems 2, Chapter 2)
+__global__ void updateVolume(int index, volume* volumes, float iterations)
+{
+	// bits for updating
+	char HAS_CLOUD_BIT		  = 0x01;
+	char PHASE_TRANSITION_BIT = 0x02;
+	char VAPOR_BIT			  = 0x04;
+
 	// identify current volume
 	volume V = volumes[index];
 
@@ -141,23 +189,63 @@ __global__ void voxelizeVolumeWithNoise(int index, volume* volumes, Perlin* perl
 	int y = (blockIdx.y * blockDim.y) + threadIdx.y;
 	int z = (blockIdx.z * blockDim.z) + threadIdx.z;
 	int voxelIndex = x*V.xyzc.y*V.xyzc.z + y*V.xyzc.z + z;
-	
-	// find distance from voxel to center of volume
-	glm::vec3 localPosition3D = getLocalVoxelPosition(glm::vec3((float)x, (float)y, (float)z), V);
-	float length = glm::distance(localPosition3D, glm::vec3(0.0f, 0.0f, 0.0f));
-	
-	// get random number
-	//float modifier = generateRandomFloatFromSeed(voxelIndex, perlin1->mSeed) * 0.5 - 0.25;
-	float modifier = 0.0f;
+	voxel vox = V.voxels[voxelIndex];
 
-	if ((length < 0.5f + modifier) && (voxelIndex < V.xyzc.x*V.xyzc.y*V.xyzc.z) && (localPosition3D.y < 0.2)) {
-		float p1 = (perlin1->Get(multiplyMV(V.transform, glm::vec4(localPosition3D, 1.0))) + (1.0 - (length / (0.5f + modifier)))) * ((0.5f + modifier) - length);
-		float p2 = (perlin2->Get(multiplyMV(V.transform, glm::vec4(localPosition3D, 1.0))) + (1.0 - (length / (0.5f + modifier)))) * ((0.5f + modifier) - length);
-		V.voxels[voxelIndex].density = max(glm::mix(p1, p2, (float)(timestep%20) / 20.0f), 0.0f);
-	}
+	//----------------------------------------------------------//
+	// BEGIN GAME ENGINE GEMS CODE                              //
+	//----------------------------------------------------------//
+
+	char phaseStates = 0x0;
+
+	if (x+1 < V.xyzc.x)	{ int idx = (x+1)*V.xyzc.y*V.xyzc.z + ( y )*V.xyzc.z + ( z ); phaseStates |= V.voxels[idx].states; }
+	if (y+1 < V.xyzc.y)	{ int idx = ( x )*V.xyzc.y*V.xyzc.z + (y+1)*V.xyzc.z + ( z ); phaseStates |= V.voxels[idx].states; }
+	if (z+1 < V.xyzc.z)	{ int idx = ( x )*V.xyzc.y*V.xyzc.z + ( y )*V.xyzc.z + (z+1); phaseStates |= V.voxels[idx].states; }
+	if (x+2 < V.xyzc.x)	{ int idx = (x+2)*V.xyzc.y*V.xyzc.z + ( y )*V.xyzc.z + ( z ); phaseStates |= V.voxels[idx].states; }
+	if (y+2 < V.xyzc.y)	{ int idx = ( x )*V.xyzc.y*V.xyzc.z + (y+2)*V.xyzc.z + ( z ); phaseStates |= V.voxels[idx].states; }
+	if (x-1 >= 0)		{ int idx = (x-1)*V.xyzc.y*V.xyzc.z + ( y )*V.xyzc.z + ( z ); phaseStates |= V.voxels[idx].states; }
+	if (y-1 >= 0)		{ int idx = ( x )*V.xyzc.y*V.xyzc.z + (y-1)*V.xyzc.z + ( z ); phaseStates |= V.voxels[idx].states; }
+	if (z-1 >= 0)		{ int idx = ( x )*V.xyzc.y*V.xyzc.z + ( y )*V.xyzc.z + (z-1); phaseStates |= V.voxels[idx].states; }
+	if (x-2 >= 0)		{ int idx = (x-2)*V.xyzc.y*V.xyzc.z + ( y )*V.xyzc.z + ( z ); phaseStates |= V.voxels[idx].states; }
+	if (y-2 >= 0)		{ int idx = ( x )*V.xyzc.y*V.xyzc.z + (y-2)*V.xyzc.z + ( z ); phaseStates |= V.voxels[idx].states; }
+	if (z-2 >= 0)		{ int idx = ( x )*V.xyzc.y*V.xyzc.z + ( y )*V.xyzc.z + (z-2); phaseStates |= V.voxels[idx].states; }
+
+	bool phaseActivation = ((phaseStates & PHASE_TRANSITION_BIT) != 0);
+	bool thisPhaseActivation = ((vox.states & PHASE_TRANSITION_BIT) != 0);
+
+	// Set whether this cell is in a phase transition state
+	double rnd = generateRandomFloatFromSeed(voxelIndex,iterations);
+
+	bool phaseTransition = ((!thisPhaseActivation) && (vox.states & VAPOR_BIT) && phaseActivation)
+							|| (rnd < vox.phaseTransitionProbability);
+
+	if (phaseTransition) { vox.states |=  PHASE_TRANSITION_BIT; }
+	else				 { vox.states &= ~PHASE_TRANSITION_BIT; }
+
+	// Set whether this cell has acquired humidity
+	rnd = generateRandomFloatFromSeed(voxelIndex,iterations);
+
+	bool vapor = ((vox.states & VAPOR_BIT) && !thisPhaseActivation) 
+					|| (rnd < vox.vaporProbability);
+
+	if (vapor) { vox.states |=  VAPOR_BIT; }
+	else	   { vox.states &= ~VAPOR_BIT; }
+
+	// Set whether this cell contains a cloud
+	rnd = generateRandomFloatFromSeed(voxelIndex,iterations);
+
+	bool hasCloud = ((vox.states & HAS_CLOUD_BIT) || thisPhaseActivation)
+					&& (rnd > vox.extinctionProbability);
+
+	if (hasCloud) { vox.states |=  HAS_CLOUD_BIT; }
+	else		  { vox.states &= ~HAS_CLOUD_BIT; }
+
+	//----------------------------------------------------------//
+	// FINISH GAME ENGINE GEMS CODE                             //
+	//----------------------------------------------------------//
+
+	V.voxels[voxelIndex] = vox;
 }
 
-//TODO: IMPLEMENT THIS FUNCTION
 //Core raytracer kernel
 __global__ void raytraceRay(glm::vec2 resolution, float time, cameraData cam, glm::vec3* colors, light* lights, int numberOfLights,
 							material* materials, volume* volumes, int numberOfVolumes, float iterations)
@@ -176,18 +264,23 @@ __global__ void raytraceRay(glm::vec2 resolution, float time, cameraData cam, gl
 	// constant attenuation for transmission
 	float k = 0.2f;
 
-	// initialize color along ray to black
-	colors[index] = cam.brgb;
-	
+	// initialize background color for blending
+	colors[index] = cam.brgb * (1.0f - (y / cam.resolution.y));
+
+	// traverse all volumes in order (not perfect)
 	for (int v = 0; v < numberOfVolumes; v++)
 	{
-		// initialize transmission of pixel to 1.0
-		float T = 1.0;
-	
-		glm::vec3 newColor = glm::vec3(0.0f);
+		// get the current volume
 		volume V = volumes[v];
 
-		if (volumeIntersectionTest(V, currentRay, intersection_point) > 0.0)
+		// initialize transmission of volume at this pixel to 1.0
+		float T = 1.0;
+	
+		// create an empty color for the volume at this pixel
+		glm::vec3 newColor = glm::vec3(0.0f);
+
+		float depth = volumeIntersectionTest(V, currentRay, intersection_point);
+		if (depth > 0.0)
 		{
 			// initial intersection point on bounding box of volume
 			glm::vec3 marchPoint = intersection_point;
@@ -203,7 +296,14 @@ __global__ void raytraceRay(glm::vec2 resolution, float time, cameraData cam, gl
 			while (voxelIndex >= 0) {
 
 				// density of voxel at point
-				float p = V.voxels[voxelIndex].density;
+				voxel vox = V.voxels[voxelIndex];
+				char voxstates = vox.states;
+				if ((voxstates & 0x1) != 0x1) {
+					marchPoint += V.step * glm::normalize(currentRay.direction);
+					voxelIndex = getVoxelIndex(marchPoint, V);
+					continue;
+				}
+				float p = vox.density;
 			
 				// transmission value at point evaluated using given function
 				float deltaT = exp(-k*V.step*p);
@@ -242,14 +342,15 @@ __global__ void raytraceRay(glm::vec2 resolution, float time, cameraData cam, gl
 						while (lightVoxelIndex >= 0) 
 						{
 							// density at point along light ray
-							float pLight = V.voxels[lightVoxelIndex].density;
+							voxel lightVoxel = V.voxels[lightVoxelIndex];
+							float pLight = lightVoxel.density * (lightVoxel.states & 0x1);
 					
 							// light transmission value at point along light ray
 							float deltaQ = exp(-k*V.step*pLight);
 
 							// accumulate opacity of point
 							Q *= deltaQ;
-							if (Q < 0.05) break;
+							if (Q < 0.1) break;
 
 							// step to next sample point along light ray
 							lightPoint += lightDir * V.step;
@@ -271,6 +372,7 @@ __global__ void raytraceRay(glm::vec2 resolution, float time, cameraData cam, gl
 		} 
 		// blend with background color according to transmission
 		glm::clamp(T, 0.0f, 1.0f);
+		newColor = (newColor - glm::vec3(0.1)) * 1.5f;
 		colors[index] = glm::mix(newColor, colors[index], T);
 		colors[index] = glm::clamp(colors[index], 0.0f, 1.0f);
 	}
@@ -301,11 +403,14 @@ void cudaRaytraceCore(uchar4* PBOpos, camera* renderCam, int timestep, material*
 		newVolume.delt             = volumes[i].delt;
 		newVolume.step             = volumes[i].step;
 		newVolume.xyzc             = volumes[i].xyzc;
-		newVolume.translation      = volumes[i].translation;
+		newVolume.translation      = volumes[i].translation + (float)timestep*volumes[i].velocity*glm::vec3(1.0, 0.0, 0.0);
 		newVolume.rotation         = volumes[i].rotation;
 		newVolume.scale            = volumes[i].scale;
-		newVolume.transform        = volumes[i].transform;
-		newVolume.inverseTransform = volumes[i].inverseTransform;
+		glm::mat4 transform = utilityCore::buildTransformationMatrix(newVolume.translation, newVolume.rotation, newVolume.scale);
+		newVolume.transform = utilityCore::glmMat4ToCudaMat4(transform);
+		newVolume.inverseTransform = utilityCore::glmMat4ToCudaMat4(glm::inverse(transform));
+		//newVolume.transform        = volumes[i].transform;
+		//newVolume.inverseTransform = volumes[i].inverseTransform;
 
 		voxel* cudaVolumeVoxels = NULL;
 		int numVoxels = int(newVolume.xyzc.x*newVolume.xyzc.y*newVolume.xyzc.z);
@@ -313,8 +418,11 @@ void cudaRaytraceCore(uchar4* PBOpos, camera* renderCam, int timestep, material*
 		
 		voxel* voxels = new voxel[numVoxels];
 		for (int v = 0; v < numVoxels; v++) {
+			voxels[v].states = volumes[i].voxels[v].states;
 			voxels[v].density = volumes[i].voxels[v].density;
-			//if (v % 1000 == 0) printf("iteration %d, voxel %d: %f\n", timestep, v, voxels[v].density);
+			voxels[v].vaporProbability = volumes[i].voxels[v].vaporProbability;
+			voxels[v].extinctionProbability = volumes[i].voxels[v].extinctionProbability;
+			voxels[v].phaseTransitionProbability = volumes[i].voxels[v].phaseTransitionProbability;
 		}
 		cudaMemcpy(cudaVolumeVoxels, voxels, numVoxels*sizeof(voxel), cudaMemcpyHostToDevice);
 		newVolume.voxels = cudaVolumeVoxels;
@@ -377,13 +485,13 @@ void cudaRaytraceCore(uchar4* PBOpos, camera* renderCam, int timestep, material*
 
 	// kernel call to populate voxel densities
 	for (int i = 0; i < numberOfVolumes; i++) {
-		//if (!volumes[i].isSet) {
-			dim3 voxelThreadsPerBlock(tileSize, tileSize, tileSize);
-			dim3 voxelFullBlocksPerGrid((int)ceil(float(volumes[i].xyzc.x)/float(tileSize)), 
-										(int)ceil(float(volumes[i].xyzc.y)/float(tileSize)), 
-										(int)ceil(float(volumes[i].xyzc.z)/float(tileSize)));
-			voxelizeVolumeWithNoise<<<voxelFullBlocksPerGrid, voxelThreadsPerBlock>>>(i, cudavolumes, cudaperlin1, cudaperlin2, (float)timestep);
-		//}
+		int voxelTileSize = 2;
+		dim3 voxelThreadsPerBlock(voxelTileSize, voxelTileSize, voxelTileSize);
+		dim3 voxelFullBlocksPerGrid((int)ceil(float(volumes[i].xyzc.x)/float(voxelTileSize)), 
+									(int)ceil(float(volumes[i].xyzc.y)/float(voxelTileSize)), 
+									(int)ceil(float(volumes[i].xyzc.z)/float(voxelTileSize)));
+		voxelizeVolumeWithNoise<<<voxelFullBlocksPerGrid, voxelThreadsPerBlock>>>(i, cudavolumes, cudaperlin1, cudaperlin2, (float)timestep);
+		updateVolume<<<voxelFullBlocksPerGrid, voxelThreadsPerBlock>>>(i, cudavolumes, timestep);
 	}
 	
 
@@ -402,11 +510,10 @@ void cudaRaytraceCore(uchar4* PBOpos, camera* renderCam, int timestep, material*
 	cudaMemcpy(volumesArr, cudavolumes, numberOfVolumes*sizeof(volume), cudaMemcpyDeviceToHost);
 
 	for (int i = 0; i < numberOfVolumes; i++) {
-		if (!volumes[i].isSet) {
-			int numVoxels = int(volumes[i].xyzc.x*volumes[i].xyzc.y*volumes[i].xyzc.z);
-			cudaMemcpy(volumes[i].voxels, volumesArr[i].voxels, numVoxels*sizeof(voxel), cudaMemcpyDeviceToHost);
-			volumes[i].isSet = true;
-		}
+		int numVoxels = int(volumes[i].xyzc.x*volumes[i].xyzc.y*volumes[i].xyzc.z);
+		cudaMemcpy(volumes[i].voxels, volumesArr[i].voxels, numVoxels*sizeof(voxel), cudaMemcpyDeviceToHost);
+		volumes[i].isSet = true;
+		volumes[i].translation = volumesArr[i].translation;
 	}
 
 	//free up stuff, or else we'll leak memory like a madman

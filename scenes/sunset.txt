@@ -1,0 +1,34 @@
+MATERIAL 0
+mrgb 0.96 0.96 0.96
+
+CAMERA
+brgb 0.99 0.37 0.33
+file BabysFirstCloudImage.bmp
+reso 600 600
+iter 1
+fovy 45
+eyep 270 45 200
+vdir 0 0 -1
+uvec 0 1 0
+
+LIGHT 0
+lpos 400 300 -100
+lcol 1.0 0.8 0.22
+
+VOLUME 0
+mtid 0
+delt 1.2
+step 1.0
+xyzc 200 30 100
+TRANSLATION 250 25 50
+ROTATION 0 0 0
+VELOCITY 0.001
+
+VOLUME 1
+mtid 0
+delt 1.2
+step 1.0
+xyzc 120 20 60
+TRANSLATION 110 0 60
+ROTATION 0 0 0
+VELOCITY 0.005

@@ -19,10 +19,11 @@ struct ray {
 };
 
 struct voxel {
-	float density;
-	float extinctionProbablity;
-	float phaseTransitionProbability;
 	char states;
+	float density;
+	float vaporProbability;
+	float extinctionProbability;
+	float phaseTransitionProbability;
 };
 
 struct geom {
@@ -54,6 +55,7 @@ struct volume {
 	int materialid;
 	float delt;
 	float step;
+	float velocity;
 	glm::vec3 xyzc;
 	glm::vec3 translation;
 	glm::vec3 rotation;
