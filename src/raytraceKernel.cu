@@ -756,7 +756,6 @@ void cudaRaytraceCore(uchar4* PBOpos, camera* renderCam, int timestep, material*
 	cudaFree(cudaperlin1);
 	cudaFree(cudaperlin2);
 
-	
 	//------------------------------------------------------------------------------------------------//
 	// Check for errors and finish                                                                    //
 	//------------------------------------------------------------------------------------------------//
