@@ -10,59 +10,35 @@ fovy 45
 eyep 270 45 200
 vdir 0 0 -1
 uvec 0 1 0
+zoom 200
 
 LIGHT 0
 lpos 500 -200 0
 lcol 1 1 1
-
-//VOLUME 0
-//mtid 0
-//delt 1.2
-//step 0.5
-//xyzc 100 100 100
-//TRANSLATION 0 0 0
-//ROTATION 0 0 0
-
-//VOLUME 1
-//mtid 0
-//delt 1.2
-//step 0.5
-//xyzc 100 50 100
-//TRANSLATION 100 25 0
-//ROTATION 0 0 0
-
-//VOLUME 2
-//mtid 0
-//delt 1.2
-//step 0.5
-//xyzc 100 50 100
-//TRANSLATION -100 25 0
-//ROTATION 0 0 0
-
-
-//VOLUME 0
-//mtid 0
-//delt 1.2
-//step 0.5
-//xyzc 100 80 450
-//TRANSLATION 340 25 -200
-//ROTATION 0 0 0
-
 
 VOLUME 0
 mtid 0
 delt 1.2
 step 1.0
 xyzc 100 50 100
-TRANSLATION 250 15 100
+TRANSLATION -75 0 190
 ROTATION 0 0 0
-VELOCITY 0.001
+VELOCITY 0.007
 
 VOLUME 1
 mtid 0
 delt 1.2
 step 1.0
 xyzc 60 30 60
-TRANSLATION 310 10 120
-ROTATION 0 0 0
+TRANSLATION 280 10 120
+ROTATION 5 0 0
 VELOCITY 0.005
+
+VOLUME 2
+mtid 0
+delt 1.2
+step 1.0
+xyzc 100 50 100
+TRANSLATION 250 15 100
+ROTATION 15 0 0
+VELOCITY 0.001

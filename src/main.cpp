@@ -163,7 +163,7 @@ void runCuda(){
 	string filename = renderCam->imageName;
 	string s;
 	stringstream out;
-	out << targetFrame;
+	out << iterations;
 	s = out.str();
 	utilityCore::replaceString(filename, ".bmp", "."+s+".bmp");
 	utilityCore::replaceString(filename, ".png", "."+s+".png");
@@ -316,27 +316,28 @@ void GLUTMotion(int x, int y) {
 	if ((dx != 0) || (dy != 0)) {
 		if ((GLUTbutton[0] && (GLUTmodifiers & GLUT_ACTIVE_SHIFT)) || GLUTbutton[1]) {
 			// Scale world 
+			glm::vec3 camera_aim = renderCam->position + renderCam->view*renderCam->zoom;
 			float factor = (float) dx / GLUTwindow_width;
 			factor += (float) dy / GLUTwindow_height;
 			factor = exp(2.0 * factor);
 			factor = (factor - 1.0) / factor;
-			glm::vec3 translation = (glm::vec3(0) - renderCam->position) * factor;
+			glm::vec3 translation = (camera_aim - renderCam->position) * factor;
 			renderCam->position += translation;
-			float camera_zoom = glm::length(renderCam->position);
+			renderCam->zoom = glm::distance(renderCam->position, camera_aim);
 			glutPostRedisplay();
 		}
 		else if (GLUTbutton[0]) {
 			// Rotate world
-			dx = -dx;
-			float camera_zoom = glm::length(renderCam->position);
-			float length = glm::length(renderCam->position) * 2.0f * tan(renderCam->fov.y);
+			//dx = -dx;
+			glm::vec3 camera_aim = renderCam->position + renderCam->view*renderCam->zoom;
+			float length = renderCam->zoom * 2.0f * tan(renderCam->fov.y);
 			float vx = length * (float) dx / GLUTwindow_width;
 			float vy = length * (float) dy / GLUTwindow_height;
 			glm::vec3 camera_right = glm::cross(renderCam->up, renderCam->view);
 			glm::vec3 translation = -((camera_right * vx) + (renderCam->up * vy));
 			renderCam->position += translation;
-			renderCam->position = glm::normalize(renderCam->position) * camera_zoom;
-			renderCam->view = glm::normalize(renderCam->position - glm::vec3(0.0f));
+			renderCam->position = camera_aim + glm::normalize(renderCam->position - camera_aim) * renderCam->zoom;
+			renderCam->view = glm::normalize(renderCam->position - camera_aim);
 			renderCam->up -= glm::dot(renderCam->up, renderCam->view)*renderCam->view;
 			glutPostRedisplay();
 		}

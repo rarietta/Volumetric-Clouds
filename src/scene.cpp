@@ -166,22 +166,16 @@ int scene::loadVolume(string volumeid){
 				newVolume.materialid = atoi(tokens[1].c_str());
 				cout << "Connecting Volume " << volumeid << " to Material " << newVolume.materialid << "..." << endl;
 			}else if(strcmp(tokens[0].c_str(), "delt")==0){
-				cout << "Connecting Volume to delt" << endl;
 				newVolume.delt = atof(tokens[1].c_str());
 			}else if(strcmp(tokens[0].c_str(), "step")==0){
-				cout << "Connecting Volume to step" << endl;
 				newVolume.step = atof(tokens[1].c_str());
 			}else if(strcmp(tokens[0].c_str(), "xyzc")==0){
-				cout << "Connecting Volume to xyzc" << endl;
 				newVolume.xyzc = glm::vec3(atoi(tokens[1].c_str()), atoi(tokens[2].c_str()), atoi(tokens[3].c_str()));
 			}else if(strcmp(tokens[0].c_str(), "TRANSLATION")==0){
-				cout << "Connecting Volume to trans" << endl;
 				newVolume.translation = glm::vec3(atof(tokens[1].c_str()), atof(tokens[2].c_str()), atof(tokens[3].c_str()));
 			}else if(strcmp(tokens[0].c_str(), "ROTATION")==0){
-				cout << "Connecting Volume to rot" << endl;
 				newVolume.rotation = glm::vec3(atof(tokens[1].c_str()), atof(tokens[2].c_str()), atof(tokens[3].c_str()));
 			}else if(strcmp(tokens[0].c_str(), "VELOCITY")==0){
-				cout << "Connecting Volume to vel" << endl;
 				newVolume.velocity = atof(tokens[1].c_str());
 			}
 		}
@@ -249,7 +243,7 @@ int scene::loadCamera(){
 	float fovy;
 	
 	//load static properties
-	for(int i=0; i<8; i++){
+	for(int i=0; i<9; i++){
 		string line;
         utilityCore::safeGetline(fp_in,line);
 		vector<string> tokens = utilityCore::tokenizeString(line);
@@ -267,6 +261,8 @@ int scene::loadCamera(){
 			newCamera.view = glm::vec3(atof(tokens[1].c_str()), atof(tokens[2].c_str()), atof(tokens[3].c_str()));
 		}else if(strcmp(tokens[0].c_str(), "uvec")==0){
 			newCamera.up = glm::vec3(atof(tokens[1].c_str()), atof(tokens[2].c_str()), atof(tokens[3].c_str()));
+		}else if(strcmp(tokens[0].c_str(), "zoom")==0){
+			newCamera.zoom = atof(tokens[1].c_str());
 		}else if(strcmp(tokens[0].c_str(), "fovy")==0){
 			fovy = atof(tokens[1].c_str());
 		}

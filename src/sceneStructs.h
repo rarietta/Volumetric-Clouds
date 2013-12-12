@@ -80,6 +80,7 @@ struct cameraData {
 	glm::vec3 position;
 	glm::vec3 view;
 	glm::vec3 up;
+	glm::vec3 focus;
 	glm::vec2 fov;
 };
 
@@ -96,6 +97,7 @@ struct camera {
 	glm::vec3 view;				// camera directions
 	glm::vec3 up;				// up vectors
 	glm::vec2 fov;				// y-field-of-view
+	float zoom;					// camera zoom
 
 	// render data
 	glm::vec3 brgb;				// background color of render
