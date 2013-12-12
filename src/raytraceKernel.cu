@@ -197,6 +197,7 @@ __global__ void voxelizeVolumeWithNoise(int index, volume* volumes, Perlin* perl
 	int y = (blockIdx.y * blockDim.y) + threadIdx.y;		// y-index
 	int z = (blockIdx.z * blockDim.z) + threadIdx.z;		// z-index
 	int voxelIndex = x*V.xyzc.y*V.xyzc.z + y*V.xyzc.z + z;	// overall voxel index
+	if (voxelIndex >= V.xyzc.x*V.xyzc.y*V.xyzc.z) return;
 	voxel vox = V.voxels[voxelIndex];
 	
 	//------------------------------------------------------------------------------------------------//
@@ -228,8 +229,8 @@ __global__ void voxelizeVolumeWithNoise(int index, volume* volumes, Perlin* perl
 	//------------------------------------------------------------------------------------------------//
 
 	vox.density	= pf;
-	vox.vaporProbability = pf * 0.003f;					
-	vox.phaseTransitionProbability = pf * 0.00003;
+	vox.vaporProbability = pf * 0.1f;					
+	vox.phaseTransitionProbability = pf * 0.0000003;
 	vox.extinctionProbability = max((1.0-pf), 0.0f) * 0.9f;						
 		
 	if ((localPosition3D.y > 0.15f) && (pf > 0.01f)) { vox.states |= 0x1; }
@@ -275,12 +276,15 @@ __global__ void updateCloudVolume(int index, volume* volumes, float iterations)
 	int y = (blockIdx.y * blockDim.y) + threadIdx.y;
 	int z = (blockIdx.z * blockDim.z) + threadIdx.z;
 	int voxelIndex = x*V.xyzc.y*V.xyzc.z + y*V.xyzc.z + z;
+	if (voxelIndex >= V.xyzc.x*V.xyzc.y*V.xyzc.z) return;
 	voxel vox = V.voxels[voxelIndex];
 	
 	//------------------------------------------------------------------------------------------------//
 	// Begin simulation step based on approach outlined in Game Engine Gems 2                         //
 	//------------------------------------------------------------------------------------------------//
 
+	if (vox.states & HAS_CLOUD_BIT) { vox.isOldCloud = true;  }
+	else							{ vox.isOldCloud = false; }
 	char phaseStates = 0x0;
 	
 	//------------------------------------------------------------------------------------------------//
@@ -292,15 +296,6 @@ __global__ void updateCloudVolume(int index, volume* volumes, float iterations)
 	} if (y+1 < V.xyzc.y)	{ 
 		int idx = ( x )*V.xyzc.y*V.xyzc.z + (y+1)*V.xyzc.z + ( z ); 
 		phaseStates |= V.voxels[idx].states; 
-	} if (z+1 < V.xyzc.z)	{ 
-		int idx = ( x )*V.xyzc.y*V.xyzc.z + ( y )*V.xyzc.z + (z+1);
-		phaseStates |= V.voxels[idx].states; 
-	} if (x+2 < V.xyzc.x)	{ 
-		int idx = (x+2)*V.xyzc.y*V.xyzc.z + ( y )*V.xyzc.z + ( z );
-		phaseStates |= V.voxels[idx].states; 
-	} if (y+2 < V.xyzc.y)	{ 
-		int idx = ( x )*V.xyzc.y*V.xyzc.z + (y+2)*V.xyzc.z + ( z );
-		phaseStates |= V.voxels[idx].states; 
 	} if (x-1 >= 0)		{ 
 		int idx = (x-1)*V.xyzc.y*V.xyzc.z + ( y )*V.xyzc.z + ( z ); 
 		phaseStates |= V.voxels[idx].states; 
@@ -309,12 +304,6 @@ __global__ void updateCloudVolume(int index, volume* volumes, float iterations)
 		phaseStates |= V.voxels[idx].states; 
 	} if (z-1 >= 0)		{ 
 		int idx = ( x )*V.xyzc.y*V.xyzc.z + ( y )*V.xyzc.z + (z-1); 
-		phaseStates |= V.voxels[idx].states; 
-	} if (x-2 >= 0)		{ 
-		int idx = (x-2)*V.xyzc.y*V.xyzc.z + ( y )*V.xyzc.z + ( z ); 
-		phaseStates |= V.voxels[idx].states; 
-	} if (y-2 >= 0)		{ 
-		int idx = ( x )*V.xyzc.y*V.xyzc.z + (y-2)*V.xyzc.z + ( z ); 
 		phaseStates |= V.voxels[idx].states; 
 	} if (z-2 >= 0)		{ 
 		int idx = ( x )*V.xyzc.y*V.xyzc.z + ( y )*V.xyzc.z + (z-2); 
@@ -411,6 +400,9 @@ __global__ void raytraceRay(glm::vec2 resolution, float time, cameraData cam, gl
 
 	float totalT = 1.0;
 	bool thresholdHasBeenCrossed = false;
+		// create an empty color for the volume at this pixel
+		glm::vec3 newColor = glm::vec3(0.0f);
+
 	for (int v = 0; v < numberOfVolumes; v++)
 	{
 		if (thresholdHasBeenCrossed) break;
@@ -421,9 +413,6 @@ __global__ void raytraceRay(glm::vec2 resolution, float time, cameraData cam, gl
 		// initialize transmission of volume at this pixel to 1.0
 		float T = 1.0;
 	
-		// create an empty color for the volume at this pixel
-		glm::vec3 newColor = glm::vec3(0.0f);
-
 		float depth = volumeIntersectionTest(V, currentRay, intersection_point);
 		if (depth >= 0.0)
 		{
@@ -452,7 +441,8 @@ __global__ void raytraceRay(glm::vec2 resolution, float time, cameraData cam, gl
 				} 
 				
 				// density of voxel at point
-				float p = vox.density;
+				float scale = 0.5; if (vox.isOldCloud) scale = 1.0f;
+				float p = vox.density * scale;
 			
 				// transmission value at point evaluated using given function
 				float deltaT = exp(-k*V.step*p);
@@ -461,7 +451,7 @@ __global__ void raytraceRay(glm::vec2 resolution, float time, cameraData cam, gl
 				// and break if below threshold
 				T *= min(deltaT, 1.0f);
 				totalT *= min(deltaT, 1.0f);
-				if (totalT < 0.1) { thresholdHasBeenCrossed = true; break; }
+				if (totalT < 0.3) { thresholdHasBeenCrossed = true; break; }
 				
 				//------------------------------------------------------------------------------------//
 				// Calculate lighting contibution at voxel by tracing light ray through volume        //
@@ -537,11 +527,11 @@ __global__ void raytraceRay(glm::vec2 resolution, float time, cameraData cam, gl
 		// Blend with background color according to calculated transmission                           //
 		//--------------------------------------------------------------------------------------------//
 		
-		glm::clamp(T, 0.0f, 1.0f);
-		newColor = (newColor - glm::vec3(0.1)) * 1.5f;
-		colors[index] = glm::mix(newColor, colors[index], T);
-		colors[index] = glm::clamp(colors[index], 0.0f, 1.0f);
 	}
+		glm::clamp(totalT, 0.0f, 1.0f);
+		//newColor = (newColor - glm::vec3(0.1)) * 1.5f;
+		colors[index] = glm::mix(newColor, colors[index], totalT);
+		colors[index] = glm::clamp(colors[index], 0.0f, 1.0f);
 }
 
 
@@ -611,6 +601,7 @@ void cudaRaytraceCore(uchar4* PBOpos, camera* renderCam, int timestep, material*
 			voxels[v].vaporProbability = volumes[i].voxels[v].vaporProbability;
 			voxels[v].extinctionProbability = volumes[i].voxels[v].extinctionProbability;
 			voxels[v].phaseTransitionProbability = volumes[i].voxels[v].phaseTransitionProbability;
+			voxels[v].isOldCloud = volumes[i].voxels[v].isOldCloud;
 		}
 
 		// send voxel to device and link to volume object
@@ -683,7 +674,7 @@ void cudaRaytraceCore(uchar4* PBOpos, camera* renderCam, int timestep, material*
 	cam.fov = renderCam->fov;
 
 	//------------------------------------------------------------------------------------------------//
-	// Core kernel function calls -- this is where simulation and rendering happens                   //
+	// Modify and simulate the clouds											                      //
 	//------------------------------------------------------------------------------------------------//
 
 	// kernel call to update state of cloud voxels
@@ -703,19 +694,6 @@ void cudaRaytraceCore(uchar4* PBOpos, camera* renderCam, int timestep, material*
 		}
 	}
 	
-	// kernel call to render clouds in current state
-	int renderTileSize = 10;
-	dim3 renderThreadsPerBlock(renderTileSize, renderTileSize);
-	dim3 renderFullBlocksPerGrid((int)ceil(float(renderCam->resolution.x)/float(renderTileSize)), 
-								 (int)ceil(float(renderCam->resolution.y)/float(renderTileSize)));
-	raytraceRay<<<renderFullBlocksPerGrid, renderThreadsPerBlock>>>
-		(renderCam->resolution, (float)timestep, cam, cudaimage, cudalights, numberOfLights, 
-		 cudamaterials, cudavolumes, numberOfVolumes);
-  
-	// kernel call to write out the rendered image
-	sendImageToPBO<<<renderFullBlocksPerGrid, renderThreadsPerBlock>>>
-		(PBOpos, renderCam->resolution, cudaimage);
-  
 	//------------------------------------------------------------------------------------------------//
 	// Save out data structures for next step and for rendering                                       //
 	//------------------------------------------------------------------------------------------------//
@@ -735,7 +713,24 @@ void cudaRaytraceCore(uchar4* PBOpos, camera* renderCam, int timestep, material*
 		volumes[i].isSet = true;
 		volumes[i].translation = volumesArr[i].translation;
 	}
+	
+	//------------------------------------------------------------------------------------------------//
+	// Render the volumes		                                                                      //
+	//------------------------------------------------------------------------------------------------//
 
+	// kernel call to render clouds in current state
+	int renderTileSize = 10;
+	dim3 renderThreadsPerBlock(renderTileSize, renderTileSize);
+	dim3 renderFullBlocksPerGrid((int)ceil(float(renderCam->resolution.x)/float(renderTileSize)), 
+								 (int)ceil(float(renderCam->resolution.y)/float(renderTileSize)));
+	raytraceRay<<<renderFullBlocksPerGrid, renderThreadsPerBlock>>>
+		(renderCam->resolution, (float)timestep, cam, cudaimage, cudalights, numberOfLights, 
+		 cudamaterials, cudavolumes, numberOfVolumes);
+  
+	// kernel call to write out the rendered image
+	sendImageToPBO<<<renderFullBlocksPerGrid, renderThreadsPerBlock>>>
+		(PBOpos, renderCam->resolution, cudaimage);
+  
 	//------------------------------------------------------------------------------------------------//
 	// Free memory to avoid leaks                                                                     //
 	//------------------------------------------------------------------------------------------------//

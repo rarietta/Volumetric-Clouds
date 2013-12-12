@@ -95,14 +95,14 @@ __host__ __device__ int getVoxelIndex(glm::vec3 P, volume V){
 	// multiply by inverse transform
 	glm::vec3 Pt = multiplyMV(V.inverseTransform, glm::vec4(P,1.0f));
 
-	float error = 0.75e-3;
+	float error = 0.75e-2;
 	if ((Pt.x >= (-0.5 - error)) && (Pt.x <= (0.5 + error)) && 
 		(Pt.y >= (-0.5 - error)) && (Pt.y <= (0.5 + error)) && 
 		(Pt.z >= (-0.5 - error)) && (Pt.z <= (0.5 + error)))
 	{
-		int x = floor((Pt.x + 0.5f + error) * V.xyzc.x);
-		int y = floor((Pt.y + 0.5f + error) * V.xyzc.y);
-		int z = floor((Pt.z + 0.5f + error) * V.xyzc.z);
+		int x = floor((Pt.x + 0.5f + error) * (V.xyzc.x-5));
+		int y = floor((Pt.y + 0.5f + error) * (V.xyzc.y-5));
+		int z = floor((Pt.z + 0.5f + error) * (V.xyzc.z-5));
 
 		return x*V.xyzc.y*V.xyzc.z + y*V.xyzc.z + z;
 	}

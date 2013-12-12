@@ -42,6 +42,10 @@ int main(int argc, char** argv){
     cout << "Error: scene file needed!" << endl;
     return 0;
   }
+  
+  frame = 0;
+  seconds = time (NULL);
+  fpstracker = 0;
 
   // Set up camera stuff from loaded pathtracer settings
   iterations = 0;
@@ -169,6 +173,9 @@ void runCuda(){
 	utilityCore::replaceString(filename, ".png", "."+s+".png");
 	outputImage.saveImageRGB(filename);
 	cout << "Saved frame " << s << " to " << filename << endl;*/
+	
+	frame++;
+	fpstracker++;
 }
 
 void clearCuda() {
@@ -201,8 +208,18 @@ void clearCuda() {
 
 	void display(){
 		runCuda();
+		
+		time_t seconds2 = time (NULL);
 
-		string title = "565Raytracer | " + utilityCore::convertIntToString(iterations) + " Iterations";
+		if(seconds2-seconds >= 1){
+
+		  fps = fpstracker/(seconds2-seconds);
+		  fpstracker = 0;
+		  seconds = seconds2;
+
+		}
+
+		string title = "565Raytracer | " + utilityCore::convertIntToString(iterations) + " Iterations | " + utilityCore::convertIntToString((int)fps) + "FPS";;
 		glutSetWindowTitle(title.c_str());
 
 		glBindBuffer( GL_PIXEL_UNPACK_BUFFER, pbo);

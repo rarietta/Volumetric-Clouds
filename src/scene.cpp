@@ -198,6 +198,7 @@ int scene::loadVolume(string volumeid){
 			newVolume.voxels[i].extinctionProbability = 1.0f;
 			newVolume.voxels[i].phaseTransitionProbability = 0.0f;
 			newVolume.voxels[i].states = 0x0;
+			newVolume.voxels[i].isOldCloud = false;
 		}
 
 		volumes.push_back(newVolume);

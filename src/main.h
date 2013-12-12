@@ -22,6 +22,7 @@
 #include <iostream>
 #include <sstream>
 #include <fstream>
+#include <time.h>
 #include "glslUtility.h"
 #include "sceneStructs.h"
 #include "glm/glm.hpp"
@@ -58,6 +59,10 @@ bool singleFrameMode;
 //------------GL STUFF-----------
 //-------------------------------
 
+int frame;
+int fpstracker;
+double seconds;
+int fps = 0;
 GLuint positionLocation = 0;
 GLuint texcoordsLocation = 1;
 const char *attributeLocations[] = { "Position", "Tex" };

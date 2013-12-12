@@ -24,6 +24,7 @@ struct voxel {
 	float vaporProbability;
 	float extinctionProbability;
 	float phaseTransitionProbability;
+	bool isOldCloud;
 };
 
 struct geom {
@@ -109,15 +110,6 @@ struct camera {
 
 struct material{
 	glm::vec3 color;
-	//float specularExponent;
-	//glm::vec3 specularColor;
-	//float hasReflective;
-	//float hasRefractive;
-	//float indexOfRefraction;
-	//float hasScatter;
-	//glm::vec3 absorptionCoefficient;
-	//float reducedScatterCoefficient;
-	//float emittance;
 };
 
 #endif //CUDASTRUCTS_H
